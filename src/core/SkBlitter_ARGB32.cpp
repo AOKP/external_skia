@@ -439,6 +439,134 @@ void SkARGB32_Black_Blitter::blitMask(const SkMask& mask, const SkIRect& clip) {
         unsigned       maskRB = mask.fRowBytes - width;
         unsigned       deviceRB = fDevice.rowBytes() - (width << 2);
         const uint8_t* alpha = mask.getAddr(clip.fLeft, clip.fTop);
+
+#if defined(__ARM_HAVE_NEON) && defined(SK_CPU_LENDIAN)
+        if (width > 8) {
+            asm volatile (
+            // Setup constants
+            "vmov.i16       q15, #256                       \n\t"   // Set up alpha constant
+            "sub            %[width], %[width], #8          \n\t"   // Decrement width loop counter
+            // loop height
+            "1:                                             \n\t"   //
+            "vld1.8         {d4}, [%[alpha_buffer]]         \n\t"   // Load eight alpha values
+            "vld4.8         {d0-d3}, [%[rgb_buffer]]        \n\t"   // Load eight RGBX pixels
+            "pld            [%[alpha_buffer], #8]           \n\t"   // Pre-load next eight alpha values
+            "pld            [%[rgb_buffer], #32]            \n\t"   // Pre-load next eight RGBX pixels
+            "mov            r6, %[width]                    \n\t"   // Put width counter in register
+            "ands           r4, r6, #0x7                    \n\t"   // Should we do a partial first iteration?
+            "moveq          r4, #8                          \n\t"   // Do full iteration?
+            // loop width
+            "2:                                             \n\t"   //
+            "vsubw.u8       q14, q15, d4                    \n\t"   // Calculate inverse alpha (scale)
+            "vmov.8         d5, d4                          \n\t"   // Backup alpha
+            "vmovl.u8       q8, d0                          \n\t"   // Expand destination red to 16-bit
+            "vmovl.u8       q9, d1                          \n\t"   // Expand destination green to 16-bit
+            "vmovl.u8       q10, d2                         \n\t"   // Expand destination blue to 16-bit
+            "vmovl.u8       q11, d3                         \n\t"   // Expand destination alpha to 16-bit
+            "vmul.i16       q8, q8, q14                     \n\t"   // Calculate red
+            "add            %[alpha_buffer], r4             \n\t"   // Increment source pointer
+            "mov            r5, %[rgb_buffer]               \n\t"   // Backup destination pointer
+            "vmul.i16       q9, q9, q14                     \n\t"   // Calculate green
+            "add            %[rgb_buffer], r4, lsl #2       \n\t"   // Increment destination pointer
+            "vld1.8         {d4}, [%[alpha_buffer]]         \n\t"   // Load next eight source RGBA pixels
+            "vmul.i16       q10, q10, q14                   \n\t"   // Calculate blue
+            "vmul.i16       q11, q11, q14                   \n\t"   // Calculate alpha
+            "vld4.8         {d0-d3}, [%[rgb_buffer]]        \n\t"   // Load next eight destination RGBA pixels
+            "vshrn.i16      d24, q8, #8                     \n\t"   // Shift and narrow red
+            "vshrn.i16      d25, q9, #8                     \n\t"   // Shift and narrow green
+            "pld            [%[alpha_buffer], #8]           \n\t"   // Pre-load next eight alpha values
+            "pld            [%[rgb_buffer], #32]            \n\t"   // Pre-load next eight RGBX pixels
+            "vshrn.i16      d26, q10, #8                    \n\t"   // Shift and narrow blue
+            "vshrn.i16      d27, q11, #8                    \n\t"   // Shift and narrow alpha
+            "vadd.i8        d27, d5                         \n\t"   // Add alpha to results
+            "subs           r6, r6, r4                      \n\t"   // Decrement loop counter
+            "vst4.8         {d24-d27}, [r5]                 \n\t"   // Write result to memory
+            "mov            r4, #8                          \n\t"   // Set next loop iteration length
+            "bne            2b                              \n\t"   // If width loop counter != 0, loop
+            // Handle the last iteration of pixels
+            "vsubw.u8       q14, q15, d4                    \n\t"   // Calculate inverse alpha (scale)
+            "vmovl.u8       q8, d0                          \n\t"   // Expand destination red to 16-bit
+            "vmovl.u8       q9, d1                          \n\t"   // Expand destination green to 16-bit
+            "vmovl.u8       q10, d2                         \n\t"   // Expand destination blue to 16-bit
+            "vmovl.u8       q11, d3                         \n\t"   // Expand destination alpha to 16-bit
+            "vmul.i16       q8, q8, q14                     \n\t"   // Calculate red
+            "vmul.i16       q9, q9, q14                     \n\t"   // Calculate green
+            "subs           %[height], %[height], #1        \n\t"   // Decrement loop counter
+            "vmul.i16       q10, q10, q14                   \n\t"   // Calculate blue
+            "vmul.i16       q11, q11, q14                   \n\t"   // Calculate alpha
+            "vshrn.i16      d24, q8, #8                     \n\t"   // Shift and narrow red
+            "vshrn.i16      d25, q9, #8                     \n\t"   // Shift and narrow green
+            "vshrn.i16      d26, q10, #8                    \n\t"   // Shift and narrow blue
+            "vshrn.i16      d27, q11, #8                    \n\t"   // Shift and narrow alpha
+            "vadd.i8        d27, d4                         \n\t"   // Add alpha to results
+            "vst4.8         {d24-d27}, [%[rgb_buffer]]      \n\t"   // Write result to memory
+            "add            %[alpha_buffer], r4             \n\t"   // Increment source pointer
+            "add            %[rgb_buffer], r4, lsl #2       \n\t"   // Increment destination pointer
+            // Jump to next line
+            "add            %[alpha_buffer], %[alpha_rowbytes]\n\t" // Increment alpha pointer
+            "add            %[rgb_buffer], %[rgb_rowbytes]  \n\t"   // Increment RGBX pointer
+            "bne            1b                              \n\t"   // If height loop counter != 0, loop
+            : [height] "+r" (height), [rgb_buffer] "+r" (device), [alpha_buffer] "+r" (alpha)
+            : [width] "r" (width), [rgb_rowbytes] "r" (deviceRB), [alpha_rowbytes] "r" (maskRB)
+            : "cc", "memory", "r4", "r5", "r6", "d0", "d1", "d2", "d3", "d4", "d5", "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31"
+            );
+        }
+        else {
+            const uint8_t index_tbl[8] = {0, 0, 0, 0, 1, 1, 1, 1};
+
+            asm volatile (
+            // Setup constants
+            "pld            [%[alpha_buffer]]               \n\t"   // Pre-load eight alpha values
+            "pld            [%[rgb_buffer]]                 \n\t"   // Pre-load eight RGBX pixels
+            "vld1.8         {d29}, [%[index_tbl]]           \n\t"   // Set up alpha index table
+            "vmov.i16       q15, #256                       \n\t"   // Set up alpha constant
+            "vmov.i32       d28, #0xFF000000                \n\t"   // Set up alpha mask
+            // height loop
+            "10:                                            \n\t"   //
+            "mov            r6, %[width]                    \n\t"   // Put width counter in register
+            "cmp            r6, #1                          \n\t"   // Exit if count is zero
+            "beq            12f                             \n\t"   //
+            "blt            14f                             \n\t"   //
+            // width loop for neon 2-pixel code
+            "11:                                            \n\t"   //
+            "vld1.16        {d1[0]}, [%[alpha_buffer]]!     \n\t"   // Load two alpha values
+            "vld1.8         {d0}, [%[rgb_buffer]]           \n\t"   // Load two RGBX pixels
+            "sub            r6, r6, #2                      \n\t"   // Decrement width counter
+            "vtbl.8         d2, {d1}, d29                   \n\t"   // Spread out alpha to match pixel format
+            "vsubw.u8       q2, q15, d2                     \n\t"   // Calculate inverse alpha (scale)
+            "vmovl.u8       q3, d0                          \n\t"   // Expand destination to 16-bit
+            "vmul.i16       q3, q3, q2                      \n\t"   // Scale pixels
+            "vand.i32       d2, d28                         \n\t"   // Mask alpha
+            "vshrn.i16      d0, q3, #8                      \n\t"   // Shift and narrow result
+            "vadd.i8        d0, d2                          \n\t"   // Add alpha to results
+            "vst1.8         {d0}, [%[rgb_buffer]]!          \n\t"   // Store two RGBX pixels
+            "cmp            r6, #1                          \n\t"   // Exit if count is zero
+            "bhi            11b                             \n\t"   // Still two or more pixels left
+            "blt            13f                             \n\t"   // Zero pixels left
+            // code to handle any one last pixel
+            "12:                                            \n\t"   //
+            "vld1.8         {d1[0]}, [%[alpha_buffer]]!     \n\t"   // Load one alpha value
+            "vld1.32        {d0[0]}, [%[rgb_buffer]]        \n\t"   // Load one RGBX pixel
+            "vtbl.8         d2, {d1}, d29                   \n\t"   // Spread out alpha to match pixel format
+            "vsubw.u8       q2, q15, d2                     \n\t"   // Calculate inverse alpha (scale)
+            "vmovl.u8       q3, d0                          \n\t"   // Expand destination to 16-bit
+            "vmul.i16       d6, d6, d4                      \n\t"   // Scale pixels
+            "vand.i32       d2, d28                         \n\t"   // Mask alpha
+            "vshrn.i16      d0, q3, #8                      \n\t"   // Shift and narrow result
+            "vadd.i8        d0, d2                          \n\t"   // Add alpha to results
+            "vst1.32        {d0[0]}, [%[rgb_buffer]]!       \n\t"   // Store one RGBX pixel
+            "13:                                            \n\t"   //
+            "add            %[alpha_buffer], %[alpha_rowbytes]\n\t" // Increment alpha pointer
+            "subs           %[height], %[height], #1        \n\t"   // Decrement loop counter
+            "add            %[rgb_buffer], %[rgb_rowbytes]  \n\t"   // Increment RGBX pointer
+            "bne            10b                             \n\t"   //
+            "14:                                            \n\t"   //
+            : [height] "+r" (height), [rgb_buffer] "+r" (device), [alpha_buffer] "+r" (alpha)
+            : [width] "r" (width), [rgb_rowbytes] "r" (deviceRB), [alpha_rowbytes] "r" (maskRB), [index_tbl] "r" (index_tbl)
+            : "cc", "memory", "r6", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d28", "d29", "d30", "d31"
+            );
+        }
+#else /* ! __ARM_HAVE_NEON */
         do {
             unsigned w = width;
             do {
@@ -449,6 +577,7 @@ void SkARGB32_Black_Blitter::blitMask(const SkMask& mask, const SkIRect& clip) {
             device = (uint32_t*)((char*)device + deviceRB);
             alpha += maskRB;
         } while (--height != 0);
+#endif /* __ARM_HAVE_NEON */
     }
 }
 
