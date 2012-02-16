@@ -137,7 +137,7 @@ bool SkBitmapProcShader::setContext(const SkBitmap& device,
     return true;
 }
 
-#define BUF_MAX     1024
+#define BUF_MAX     128
 
 #define TEST_BUFFER_OVERRITEx
 
