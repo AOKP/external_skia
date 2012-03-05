@@ -12,6 +12,7 @@
 #include "SkColorPriv.h"
 #include "SkDescriptor.h"
 #include "SkFDot6.h"
+#include "SkFloatingPoint.h"
 #include "SkFontHost.h"
 #include "SkMask.h"
 #include "SkAdvancedTypefaceMetrics.h"
@@ -55,6 +56,7 @@
 //#define DUMP_STRIKE_CREATION
 
 //#define SK_GAMMA_APPLY_TO_A8
+//#define SK_GAMMA_SRGB
 
 #ifndef SK_GAMMA_CONTRAST
     #define SK_GAMMA_CONTRAST   0x66
@@ -120,8 +122,8 @@ InitFreetype() {
     // Setup LCD filtering. This reduces colour fringes for LCD rendered
     // glyphs.
 #ifdef FT_LCD_FILTER_H
-//    err = FT_Library_SetLcdFilter(gFTLibrary, FT_LCD_FILTER_DEFAULT);
-    err = FT_Library_SetLcdFilter(gFTLibrary, FT_LCD_FILTER_LIGHT);
+    err = FT_Library_SetLcdFilter(gFTLibrary, FT_LCD_FILTER_DEFAULT);
+//    err = FT_Library_SetLcdFilter(gFTLibrary, FT_LCD_FILTER_LIGHT);
     gLCDSupport = err == 0;
     if (gLCDSupport) {
         gLCDExtra = 2; //DEFAULT and LIGHT add one pixel to each side.
@@ -629,6 +631,13 @@ static bool isAxisAligned(const SkScalerContext::Rec& rec) {
 }
 
 void SkFontHost::FilterRec(SkScalerContext::Rec* rec) {
+    //BOGUS: http://code.google.com/p/chromium/issues/detail?id=121119
+    //Cap the requested size as larger sizes give bogus values.
+    //Remove when http://code.google.com/p/skia/issues/detail?id=554 is fixed.
+    if (rec->fTextSize > SkIntToScalar(1 << 14)) {
+      rec->fTextSize = SkIntToScalar(1 << 14);
+    }
+    
     if (!gLCDSupportValid) {
         InitFreetype();
         FT_Done_FreeType(gFTLibrary);
@@ -645,7 +654,7 @@ void SkFontHost::FilterRec(SkScalerContext::Rec* rec) {
         // collapse full->normal hinting if we're not doing LCD
         h = SkPaint::kNormal_Hinting;
     }
-    if ((rec->fFlags & SkScalerContext::kSubpixelPositioning_Flag) || isLCD(*rec)) {
+    if ((rec->fFlags & SkScalerContext::kSubpixelPositioning_Flag)) {
         if (SkPaint::kNo_Hinting != h) {
             h = SkPaint::kSlight_Hinting;
         }
@@ -762,7 +771,7 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(const SkDescriptor* desc)
     // compute the flags we send to Load_Glyph
     {
         FT_Int32 loadFlags = FT_LOAD_DEFAULT;
-        bool linearMetrics = false;
+        bool linearMetrics = SkToBool(fRec.fFlags & SkScalerContext::kSubpixelPositioning_Flag);
 
         if (SkMask::kBW_Format == fRec.fMaskFormat) {
             // See http://code.google.com/p/chromium/issues/detail?id=43252#c24
@@ -779,7 +788,6 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(const SkDescriptor* desc)
                 break;
             case SkPaint::kSlight_Hinting:
                 loadFlags = FT_LOAD_TARGET_LIGHT;  // This implies FORCE_AUTOHINT
-                linearMetrics = true;
                 break;
             case SkPaint::kNormal_Hinting:
                 if (fRec.fFlags & SkScalerContext::kAutohinting_Flag)
@@ -951,8 +959,8 @@ void SkScalerContext_FreeType::generateAdvance(SkGlyph* glyph) {
         if (0 == error) {
             glyph->fRsbDelta = 0;
             glyph->fLsbDelta = 0;
-            glyph->fAdvanceX = advance;  // advance *2/3; //DEBUG
-            glyph->fAdvanceY = 0;
+            glyph->fAdvanceX = SkFixedMul(fMatrix22.xx, advance);
+            glyph->fAdvanceY = - SkFixedMul(fMatrix22.yx, advance);
             return;
         }
     }
@@ -1066,16 +1074,17 @@ void SkScalerContext_FreeType::generateMetrics(SkGlyph* glyph) {
         goto ERROR;
     }
 
-    if ((fRec.fFlags & SkScalerContext::kSubpixelPositioning_Flag) == 0) {
+    if (fDoLinearMetrics) {
+        glyph->fAdvanceX = SkFixedMul(fMatrix22.xx, fFace->glyph->linearHoriAdvance);
+        glyph->fAdvanceY = -SkFixedMul(fMatrix22.yx, fFace->glyph->linearHoriAdvance);
+    } else {
         glyph->fAdvanceX = SkFDot6ToFixed(fFace->glyph->advance.x);
         glyph->fAdvanceY = -SkFDot6ToFixed(fFace->glyph->advance.y);
+
         if (fRec.fFlags & kDevKernText_Flag) {
             glyph->fRsbDelta = SkToS8(fFace->glyph->rsb_delta);
             glyph->fLsbDelta = SkToS8(fFace->glyph->lsb_delta);
         }
-    } else {
-        glyph->fAdvanceX = SkFixedMul(fMatrix22.xx, fFace->glyph->linearHoriAdvance);
-        glyph->fAdvanceY = -SkFixedMul(fMatrix22.yx, fFace->glyph->linearHoriAdvance);
     }
 
     if ((fRec.fFlags & SkScalerContext::kVertical_Flag)
@@ -1142,49 +1151,71 @@ void SkScalerContext_FreeType::generateMetrics(SkGlyph* glyph) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static int apply_contrast(int srca, int contrast) {
-    return srca + (((255 - srca) * contrast * srca) / (255*255));
+#ifdef SK_USE_COLOR_LUMINANCE
+
+static float apply_contrast(float srca, float contrast) {
+    return srca + ((1.0f - srca) * contrast * srca);
 }
 
-static void build_power_table(uint8_t table[], float ee) {
-    for (int i = 0; i < 256; i++) {
-        float x = i / 255.f;
-        x = powf(x, ee);
-        int xx = SkScalarRoundToInt(SkFloatToScalar(x * 255));
-        table[i] = SkToU8(xx);
+#ifdef SK_GAMMA_SRGB
+static float lin(float per) {
+    if (per <= 0.04045f) {
+        return per / 12.92f;
     }
+    return powf((per + 0.055f) / 1.055, 2.4f);
 }
-
-static void build_gamma_table(uint8_t table[256], int src, int dst) {
-    static bool gInit;
-    static uint8_t powTable[256], invPowTable[256];
-    if (!gInit) {
-        const float g = SK_GAMMA_EXPONENT;
-        build_power_table(powTable, g);
-        build_power_table(invPowTable, 1/g);
-        gInit = true;
+static float per(float lin) {
+    if (lin <= 0.0031308f) {
+        return lin * 12.92f;
     }
+    return 1.055f * powf(lin, 1.0f / 2.4f) - 0.055f;
+}
+#else //SK_GAMMA_SRGB
+static float lin(float per) {
+    const float g = SK_GAMMA_EXPONENT;
+    return powf(per, g);
+}
+static float per(float lin) {
+    const float g = SK_GAMMA_EXPONENT;
+    return powf(lin, 1.0f / g);
+}
+#endif //SK_GAMMA_SRGB
 
-    const int linSrc = powTable[src];
-    const int linDst = powTable[dst];
+static void build_gamma_table(uint8_t table[256], int srcI) {
+    const float src = (float)srcI / 255.0f;
+    const float linSrc = lin(src);
+    const float linDst = 1.0f - linSrc;
+    const float dst = per(linDst);
+
     // have our contrast value taper off to 0 as the src luminance becomes white
-    const int contrast = SK_GAMMA_CONTRAST * (255 - linSrc) / 255;
-    
-    for (int i = 0; i < 256; ++i) {
-        int srca = apply_contrast(i, contrast);
-        SkASSERT((unsigned)srca <= 255);
-        int dsta = 255 - srca;
+    const float contrast = SK_GAMMA_CONTRAST / 255.0f * linDst;
+    const float step = 1.0f / 256.0f;
 
-        //Calculate the output we want.
-        int linOut = (linSrc * srca + dsta * linDst) / 255;
-        SkASSERT((unsigned)linOut <= 255);
-        int out = invPowTable[linOut];
+    //Remove discontinuity and instability when src is close to dst.
+    if (fabs(src - dst) < 0.01f) {
+        float rawSrca = 0.0f;
+        for (int i = 0; i < 256; ++i, rawSrca += step) {
+            float srca = apply_contrast(rawSrca, contrast);
+            table[i] = sk_float_round2int(255.0f * srca);
+        }
+    } else {
+        float rawSrca = 0.0f;
+        for (int i = 0; i < 256; ++i, rawSrca += step) {
+            float srca = apply_contrast(rawSrca, contrast);
+            SkASSERT(srca <= 1.0f);
+            float dsta = 1 - srca;
 
-        //Undo what the blit blend will do.
-        int result = ((255 * out) - (255 * dst)) / (src - dst);
-        SkASSERT((unsigned)result <= 255);
+            //Calculate the output we want.
+            float linOut = (linSrc * srca + dsta * linDst);
+            SkASSERT(linOut <= 1.0f);
+            float out = per(linOut);
 
-        table[i] = result;
+            //Undo what the blit blend will do.
+            float result = (out - dst) / (src - dst);
+            SkASSERT(sk_float_round2int(255.0f * result) <= 255);
+
+            table[i] = sk_float_round2int(255.0f * result);
+        }
     }
 }
 
@@ -1192,10 +1223,10 @@ static const uint8_t* getGammaTable(U8CPU luminance) {
     static uint8_t gGammaTables[4][256];
     static bool gInited;
     if (!gInited) {
-        build_gamma_table(gGammaTables[0], 0x00, 0xFF);
-        build_gamma_table(gGammaTables[1], 0x66, 0x99);
-        build_gamma_table(gGammaTables[2], 0x99, 0x66);
-        build_gamma_table(gGammaTables[3], 0xFF, 0x00);
+        build_gamma_table(gGammaTables[0], 0x00);
+        build_gamma_table(gGammaTables[1], 0x55);
+        build_gamma_table(gGammaTables[2], 0xAA);
+        build_gamma_table(gGammaTables[3], 0xFF);
 
         gInited = true;
     }
@@ -1203,7 +1234,7 @@ static const uint8_t* getGammaTable(U8CPU luminance) {
     return gGammaTables[luminance >> 6];
 }
 
-#ifndef SK_USE_COLOR_LUMINANCE
+#else //SK_USE_COLOR_LUMINANCE
 static const uint8_t* getIdentityTable() {
     static bool gOnce;
     static uint8_t gIdentityTable[256];
@@ -1215,7 +1246,7 @@ static const uint8_t* getIdentityTable() {
     }
     return gIdentityTable;
 }
-#endif
+#endif //SK_USE_COLOR_LUMINANCE
 
 static uint16_t packTriple(unsigned r, unsigned g, unsigned b) {
     return SkPackRGB16(r >> 3, g >> 2, b >> 3);
