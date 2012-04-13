@@ -136,6 +136,7 @@ void clampx_nofilter_trans_S16_D32_DX(const SkBitmapProcState& s,
         //    *colors++ = RETURNDST(src);
         //}
         Blit_Pixel16ToPixel32( colors, &(srcAddr[xpos]), n );
+        colors += n;
         count -= n;
         if (0 == count) {
             return;
