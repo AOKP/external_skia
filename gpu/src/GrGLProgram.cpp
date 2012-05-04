@@ -377,7 +377,7 @@ bool GrGLProgram::genProgram(GrGLProgram::CachedData* programData) const {
 
     segments.fVSCode.append(
         "void main() {\n"
-            "\tvec3 pos3 = " VIEW_MATRIX_NAME " * vec3("POS_ATTR_NAME", 1);\n"
+            "\tvec3 pos3 = " VIEW_MATRIX_NAME " * vec3(" POS_ATTR_NAME ", 1);\n"
             "\tgl_Position = vec4(pos3.xy, 0, pos3.z);\n");
 
     // incoming color to current stage being processed.
