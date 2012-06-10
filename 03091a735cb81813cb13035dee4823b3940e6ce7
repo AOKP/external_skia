@@ -1,0 +1,9 @@
+Change-Id: I03091a735cb81813cb13035dee4823b3940e6ce7
+Code-Review+2: Jonathan Steadman <xxwhitehawk@gmail.com>
+Verified+1: Jonathan Steadman <xxwhitehawk@gmail.com>
+Code-Review+1: Gary Dezern <garyd9@gmail.com>
+Submitted-by: Jonathan Steadman <xxwhitehawk@gmail.com>
+Submitted-at: Sun, 10 Jun 2012 10:58:18 -0500
+Reviewed-on: http://gerrit.sudoservers.com/1287
+Project: AOKP/external_skia
+Branch: refs/heads/ics
