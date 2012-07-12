@@ -23,6 +23,13 @@
     #error "unsupported DSTSIZE"
 #endif
 
+#if defined(USE_GETHER32)
+    extern "C" void S32_Opaque_D32_nofilter_DX_gether(SkPMColor* SK_RESTRICT colors,
+                                                      const SkPMColor* SK_RESTRICT srcAddr,
+                                                      int count,
+                                                      const uint32_t* SK_RESTRICT xy);
+#endif
+
 void MAKENAME(_nofilter_DXDY)(const SkBitmapProcState& s,
                               const uint32_t* SK_RESTRICT xy,
                               int count, DSTTYPE* SK_RESTRICT colors) {
@@ -65,6 +72,93 @@ void MAKENAME(_nofilter_DXDY)(const SkBitmapProcState& s,
 #endif
 }
 
+
+#if defined(USE_S16_OPAQUE) && defined(__ARM_HAVE_NEON)
+
+extern "C" void Blit_Pixel16ToPixel32( uint32_t * colors, const uint16_t *srcAddr, int n );
+
+void clampx_nofilter_trans_S16_D32_DX(const SkBitmapProcState& s,
+                                  uint32_t xy[], int count, int x, int y, DSTTYPE* SK_RESTRICT colors) {
+
+    SkASSERT((s.fInvType & ~SkMatrix::kTranslate_Mask) == 0);
+
+    //int xpos = nofilter_trans_preamble(s, &xy, x, y);
+    SkPoint pt;
+    s.fInvProc(*s.fInvMatrix, SkIntToScalar(x) + SK_ScalarHalf,
+               SkIntToScalar(y) + SK_ScalarHalf, &pt);
+    uint32_t Y = s.fIntTileProcY(SkScalarToFixed(pt.fY) >> 16,
+                           s.fBitmap->height());
+    int xpos = SkScalarToFixed(pt.fX) >> 16;
+
+    const SRCTYPE* SK_RESTRICT srcAddr = (const SRCTYPE*)s.fBitmap->getPixels();
+    SRCTYPE src;
+
+    // buffer is y32, x16, x16, x16, x16, x16
+    // bump srcAddr to the proper row, since we're told Y never changes
+    //SkASSERT((unsigned)orig_xy[0] < (unsigned)s.fBitmap->height());
+    //srcAddr = (const SRCTYPE*)((const char*)srcAddr +
+    //                                            orig_xy[0] * s.fBitmap->rowBytes());
+    SkASSERT((unsigned)Y < (unsigned)s.fBitmap->height());
+    srcAddr = (const SRCTYPE*)((const char*)srcAddr +
+                                                Y * s.fBitmap->rowBytes());
+    const int width = s.fBitmap->width();    
+    int n;
+    if (1 == width) {
+        // all of the following X values must be 0
+        memset(xy, 0, count * sizeof(uint16_t));
+        src = srcAddr[0];
+        DSTTYPE dstValue = RETURNDST(src);
+        BITMAPPROC_MEMSET(colors, dstValue, count);
+        return;
+        //goto done_sample;
+    }
+    
+
+    // fill before 0 as needed
+    if (xpos < 0) {
+        n = -xpos;
+        if (n > count) {
+            n = count;
+        }
+        src = srcAddr[0]; 
+        for( int i = 0; i < n ; i++ ){
+            *colors++ = RETURNDST(src);
+        }
+
+        count -= n;
+        if (0 == count) {
+            return;
+        }
+        xpos = 0;
+    }
+
+    // fill in 0..width-1 if needed
+    if (xpos < width) {
+        n = width - xpos;
+        if (n > count) {
+            n = count;
+        }
+        //for (int i = 0; i < n; i++) {
+        //    src = srcAddr[xpos++];
+        //    *colors++ = RETURNDST(src);
+        //}
+        Blit_Pixel16ToPixel32( colors, &(srcAddr[xpos]), n );
+        colors += n;
+        count -= n;
+        if (0 == count) {
+            return;
+        }
+    }
+
+    for (int i = 0; i < count; i++) {
+        src = srcAddr[width - 1];
+        *colors++ = RETURNDST(src);
+    }
+
+}
+
+#endif
+
 void MAKENAME(_nofilter_DX)(const SkBitmapProcState& s,
                             const uint32_t* SK_RESTRICT xy,
                             int count, DSTTYPE* SK_RESTRICT colors) {
@@ -92,6 +186,9 @@ void MAKENAME(_nofilter_DX)(const SkBitmapProcState& s,
         DSTTYPE dstValue = RETURNDST(src);
         BITMAPPROC_MEMSET(colors, dstValue, count);
     } else {
+#if defined(USE_GETHER32)
+        S32_Opaque_D32_nofilter_DX_gether(colors, srcAddr, count, xy);
+#else
         int i;
         for (i = (count >> 2); i > 0; --i) {
             uint32_t xx0 = *xy++;
@@ -111,6 +208,7 @@ void MAKENAME(_nofilter_DX)(const SkBitmapProcState& s,
             SkASSERT(*xx < (unsigned)s.fBitmap->width());
             src = srcAddr[*xx++]; *colors++ = RETURNDST(src);
         }
+#endif
     }
     
 #ifdef POSTAMBLE
