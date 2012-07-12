@@ -15,6 +15,16 @@
 #include <arm_neon.h>
 #endif
 
+extern "C"  void S32A_Opaque_BlitRow32_arm(SkPMColor* SK_RESTRICT dst,
+                                            const SkPMColor* SK_RESTRICT src,
+                                            int count,
+                                            U8CPU alpha);
+
+extern "C"  void S32A_Blend_BlitRow32_arm_neon(SkPMColor* SK_RESTRICT dst,
+                                          const SkPMColor* SK_RESTRICT src,
+                                          int count,
+                                          U8CPU alpha);
+
 #if defined(__ARM_HAVE_NEON) && defined(SK_CPU_LENDIAN)
 static void S32A_D565_Opaque_neon(uint16_t* SK_RESTRICT dst,
                                   const SkPMColor* SK_RESTRICT src, int count,
@@ -470,14 +480,18 @@ static void S32A_D565_Opaque_v7(uint16_t* SK_RESTRICT dst,
                   : "memory", "cc", "r3", "r4", "r5", "r6", "r7", "ip"
                   );
 }
-#define S32A_D565_Opaque_PROC       S32A_D565_Opaque_v7
 #define S32A_D565_Blend_PROC        NULL
 #define S32_D565_Blend_Dither_PROC  NULL
 #else
-#define S32A_D565_Opaque_PROC       NULL
 #define S32A_D565_Blend_PROC        NULL
 #define S32_D565_Blend_Dither_PROC  NULL
 #endif
+
+/*
+ * Use neon version of BLIT assembly code from S32A_D565_Opaque_arm.S, where we process
+ * 16 pixels at-a-time and also optimize for alpha=255 case.
+ */
+#define S32A_D565_Opaque_PROC       NULL
 
 /* Don't have a special version that assumes each src is opaque, but our S32A
     is still faster than the default, so use it here
@@ -663,6 +677,10 @@ TAIL:
 
 #elif defined(__ARM_HAVE_NEON) && defined(SK_CPU_LENDIAN)
 
+/*
+ * User S32A_Opaque_BlitRow32 function from S32A_Opaque_BlitRow32.S
+ */
+#if 0
 static void S32A_Opaque_BlitRow32_neon(SkPMColor* SK_RESTRICT dst,
                                   const SkPMColor* SK_RESTRICT src,
                                   int count, U8CPU alpha) {
@@ -786,6 +804,13 @@ static void S32A_Opaque_BlitRow32_neon(SkPMColor* SK_RESTRICT dst,
 }
 
 #define	S32A_Opaque_BlitRow32_PROC	S32A_Opaque_BlitRow32_neon
+#endif
+
+/*
+ * Use asm version of BlitRow function. Neon instructions are
+ * used for armv7 targets.
+ */
+#define S32A_Opaque_BlitRow32_PROC  S32A_Opaque_BlitRow32_arm
 
 #elif defined (__ARM_ARCH__) /* #if defined(__ARM_HAVE_NEON) && defined... */
 

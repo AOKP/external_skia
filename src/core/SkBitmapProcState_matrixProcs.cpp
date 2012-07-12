@@ -327,7 +327,7 @@ static int nofilter_trans_preamble(const SkBitmapProcState& s, uint32_t** xy,
     return SkScalarToFixed(pt.fX) >> 16;
 }
 
-static void clampx_nofilter_trans(const SkBitmapProcState& s,
+void clampx_nofilter_trans(const SkBitmapProcState& s,
                                   uint32_t xy[], int count, int x, int y) {
     SkASSERT((s.fInvType & ~SkMatrix::kTranslate_Mask) == 0);
 

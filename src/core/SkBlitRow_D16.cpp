@@ -207,12 +207,20 @@ static void S32A_D565_Blend_Dither(uint16_t* SK_RESTRICT dst,
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+#if defined(__CPU_ARCH_ARM) && defined(SK_CPU_LENDIAN)
+    extern "C" void S32A_D565_Opaque_arm(uint16_t*, uint32_t*, size_t);
+#endif
+
 static const SkBlitRow::Proc gDefault_565_Procs[] = {
     // no dither
     S32_D565_Opaque,
     S32_D565_Blend,
 
+#if defined(__CPU_ARCH_ARM) && defined(SK_CPU_LENDIAN)
+    (SkBlitRow::Proc)S32A_D565_Opaque_arm,
+#else
     S32A_D565_Opaque,
+#endif
     S32A_D565_Blend,
 
     // dither
