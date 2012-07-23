@@ -250,6 +250,11 @@ LOCAL_SRC_FILES:= \
 	src/utils/SkSfntUtils.cpp \
 	src/utils/SkUnitMappers.cpp
 
+ifeq ($(BOARD_USES_SKTEXTBOX),true)
+LOCAL_SRC_FILES += \
+	src/views/SkTextBox.cpp
+endif
+
 ifeq ($(TARGET_ARCH),arm)
 
 ifeq ($(ARCH_ARM_HAVE_NEON),true)
