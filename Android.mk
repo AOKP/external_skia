@@ -599,6 +599,12 @@ LOCAL_EXPORT_C_INCLUDE_DIRS := \
 	$(LOCAL_PATH)/include/utils \
 	$(LOCAL_PATH)/include/lazy
 
+# SkTextBox used by Samsung's libtvout
+ifeq ($(BOARD_USES_SKTEXTBOX),true)
+LOCAL_SRC_FILES += src/views/SkTextBox.cpp
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/include/views
+endif
+
 # Add SFTNLY support for PDF (which in turns depends on ICU)
 LOCAL_C_INCLUDES += external/sfntly/cpp/src
 LOCAL_STATIC_LIBRARIES += libsfntly
