@@ -628,6 +628,150 @@ include external/stlport/libstlport.mk
 include $(BUILD_SHARED_LIBRARY)
 
 #############################################################
+
+# Build the skia gpu (ganesh) library
+#
+
+include $(CLEAR_VARS)
+
+LOCAL_ARM_MODE := arm
+
+ifneq ($(ARCH_ARM_HAVE_VFP),true)
+       LOCAL_CFLAGS += -DSK_SOFTWARE_FLOAT
+endif
+
+ifeq ($(TARGET_USE_GR_STATIC_RECT_VB),true)
+	LOCAL_CFLAGS += -DGR_STATIC_RECT_VB
+endif
+
+ifeq ($(ARCH_ARM_HAVE_NEON),true)
+       LOCAL_CFLAGS += -DGR_ANDROID_BUILD=1
+endif
+
+LOCAL_SRC_FILES:= \
+  src/gpu/GrPrintf_skia.cpp \
+  src/gpu/SkGpuCanvas.cpp \
+  src/gpu/SkGpuDevice.cpp \
+  src/gpu/SkGr.cpp \
+  src/gpu/SkGrFontScaler.cpp \
+  src/gpu/SkGrTexturePixelRef.cpp \
+  src/gpu/android/SkNativeGLContext_android.cpp \
+  src/gpu/gl/SkGLContext.cpp \
+  src/gpu/gl/SkNullGLContext.cpp
+
+LOCAL_SRC_FILES += \
+  src/gpu/GrAAHairLinePathRenderer.cpp \
+  src/gpu/GrAAConvexPathRenderer.cpp \
+  src/gpu/GrAddPathRenderers_default.cpp \
+  src/gpu/GrAllocPool.cpp \
+  src/gpu/GrAtlas.cpp \
+  src/gpu/GrBufferAllocPool.cpp \
+  src/gpu/GrClip.cpp \
+  src/gpu/GrContext.cpp \
+  src/gpu/GrDefaultPathRenderer.cpp \
+  src/gpu/GrDrawTarget.cpp \
+  src/gpu/GrGpu.cpp \
+  src/gpu/GrGpuFactory.cpp \
+  src/gpu/GrInOrderDrawBuffer.cpp \
+  src/gpu/GrMatrix.cpp \
+  src/gpu/GrMemory.cpp \
+  src/gpu/GrPathRendererChain.cpp \
+  src/gpu/GrPathRenderer.cpp \
+  src/gpu/GrPathUtils.cpp \
+  src/gpu/GrRectanizer.cpp \
+  src/gpu/GrRenderTarget.cpp \
+  src/gpu/GrResource.cpp \
+  src/gpu/GrResourceCache.cpp \
+  src/gpu/GrStencil.cpp \
+  src/gpu/GrStencilBuffer.cpp \
+  src/gpu/GrTesselatedPathRenderer.cpp \
+  src/gpu/GrTextContext.cpp \
+  src/gpu/GrTextStrike.cpp \
+  src/gpu/GrTexture.cpp \
+  src/gpu/gr_unittests.cpp \
+  src/gpu/android/GrGLCreateNativeInterface_android.cpp
+
+LOCAL_SRC_FILES += \
+  src/gpu/gl/GrGLCaps.cpp \
+  src/gpu/gl/GrGLContextInfo.cpp \
+  src/gpu/gl/GrGLCreateNullInterface.cpp \
+  src/gpu/gl/GrGLDefaultInterface_native.cpp \
+  src/gpu/gl/GrGLIndexBuffer.cpp \
+  src/gpu/gl/GrGLInterface.cpp \
+  src/gpu/gl/GrGLProgram.cpp \
+  src/gpu/gl/GrGLRenderTarget.cpp \
+  src/gpu/gl/GrGLSL.cpp \
+  src/gpu/gl/GrGLStencilBuffer.cpp \
+  src/gpu/gl/GrGLTexture.cpp \
+  src/gpu/gl/GrGLUtil.cpp \
+  src/gpu/gl/GrGLVertexBuffer.cpp \
+  src/gpu/gl/GrGpuGL.cpp \
+  src/gpu/gl/GrGpuGLShaders.cpp
+  
+LOCAL_STATIC_LIBRARIES := libskiatess
+LOCAL_SHARED_LIBRARIES := \
+  libcutils \
+  libutils \
+  libskia \
+  libEGL \
+  libGLESv2
+
+LOCAL_C_INCLUDES += \
+  $(LOCAL_PATH)/include/core \
+  $(LOCAL_PATH)/include/config \
+  $(LOCAL_PATH)/include/gpu \
+  $(LOCAL_PATH)/src/core \
+  $(LOCAL_PATH)/src/gpu \
+  $(LOCAL_PATH)/third_party/glu \
+  frameworks/base/opengl/include
+
+LOCAL_LDLIBS += -lpthread
+
+LOCAL_MODULE:= libskiagpu
+LOCAL_MODULE_TAGS := optional
+
+include $(BUILD_STATIC_LIBRARY)
+
+#############################################################
+# Build the skia gpu (ganesh) library
+#
+
+include $(CLEAR_VARS)
+
+LOCAL_ARM_MODE := arm
+
+LOCAL_SRC_FILES := \
+  third_party/glu/libtess/dict.c \
+  third_party/glu/libtess/geom.c \
+  third_party/glu/libtess/memalloc.c \
+  third_party/glu/libtess/mesh.c \
+  third_party/glu/libtess/normal.c \
+  third_party/glu/libtess/priorityq.c \
+  third_party/glu/libtess/render.c \
+  third_party/glu/libtess/sweep.c \
+  third_party/glu/libtess/tess.c \
+  third_party/glu/libtess/tessmono.c
+
+LOCAL_SHARED_LIBRARIES := \
+  libcutils \
+  libutils \
+  libEGL \
+  libGLESv2
+
+LOCAL_C_INCLUDES += \
+  $(LOCAL_PATH)/third_party/glu \
+  $(LOCAL_PATH)/third_party/glu/libtess \
+  frameworks/base/opengl/include
+
+LOCAL_LDLIBS += -lpthread
+
+LOCAL_MODULE:= libskiatess
+LOCAL_MODULE_TAGS := optional
+
+include $(BUILD_STATIC_LIBRARY)
+
+#############################################################
+
 # Build the skia tools
 #
 
