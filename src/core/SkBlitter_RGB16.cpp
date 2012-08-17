@@ -579,13 +579,22 @@ void SkRGB16_Blitter::blitH(int x, int y, int width) {
     blend32_16_row(fSrcColor32, device, width);
 }
 
+#ifdef NEON_BLITANTIH
+extern "C" void blitAntiH_NEON(const SkAlpha* SK_RESTRICT antialias,
+                               uint16_t * SK_RESTRICT device,
+                               const int16_t* SK_RESTRICT runs,
+                               uint32_t srcExpanded, unsigned scale);
+#endif
+
 void SkRGB16_Blitter::blitAntiH(int x, int y,
                                 const SkAlpha* SK_RESTRICT antialias,
                                 const int16_t* SK_RESTRICT runs) {
     uint16_t* SK_RESTRICT device = fDevice.getAddr16(x, y);
     uint32_t    srcExpanded = fExpandedRaw16;
     unsigned    scale = fScale;
-
+#ifdef NEON_BLITANTIH
+    blitAntiH_NEON(antialias, device, runs, srcExpanded, scale);
+#else
     // TODO: respect fDoDither
     for (;;) {
         int count = runs[0];
@@ -609,6 +618,7 @@ void SkRGB16_Blitter::blitAntiH(int x, int y,
         }
         device += count;
     }
+#endif
 }
 
 static inline void blend_8_pixels(U8CPU bw, uint16_t dst[], unsigned dst_scale,
