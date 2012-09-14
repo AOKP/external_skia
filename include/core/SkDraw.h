@@ -104,6 +104,8 @@ private:
     void    drawBitmapAsMask(const SkBitmap&, const SkPaint&) const;
 
 public:
+    //Be noted to update SkDraw::SkDraw() constructor code when struture is
+    //change!
     const SkBitmap* fBitmap;        // required
     const SkMatrix* fMatrix;        // required
     const SkRegion* fClip;          // DEPRECATED

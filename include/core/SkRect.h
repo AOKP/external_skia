@@ -347,6 +347,16 @@ struct SK_API SkRect {
      */
     bool isFinite() const {
 #ifdef SK_SCALAR_IS_FLOAT
+#if defined(KRAIT_OPTIMIZATION)
+        if (SkScalarIsFinite(fBottom) &&
+                SkScalarIsFinite(fRight) &&
+                SkScalarIsFinite(fLeft) &&
+                SkScalarIsFinite(fTop)) {
+            return true;
+        } else {
+            return false;
+        }
+#else
         // x * 0 will be NaN iff x is infinity or NaN.
         // a + b will be NaN iff either a or b is NaN.
         float value = fLeft * 0 + fTop * 0 + fRight * 0 + fBottom * 0;
@@ -354,6 +364,7 @@ struct SK_API SkRect {
         // value is either NaN or it is finite (zero).
         // value==value will be true iff value is not NaN
         return value == value;
+#endif
 #else
         // use bit-or for speed, since we don't care about short-circuting the
         // tests, and we expect the common case will be that we need to check all.

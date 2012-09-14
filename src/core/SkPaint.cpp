@@ -27,6 +27,75 @@
 #include "SkGlyphCache.h"
 #include "SkPaintDefaults.h"
 
+#include <pthread.h>
+
+SkTextLocale::SkTextLocale(){
+    new(&s) SkString();
+    next = NULL;
+}
+
+static class SkTextLocales gTextLocales;
+
+SkTextLocales::SkTextLocales(){
+    LocaleArray = NULL;
+    update_mutex = PTHREAD_MUTEX_INITIALIZER;
+}
+
+SkTextLocale * SkTextLocales::setTextLocale( const SkString& locale ){
+start:
+    if( !LocaleArray ){
+        pthread_mutex_lock( &update_mutex );
+        if( !LocaleArray ){
+            LocaleArray = new SkTextLocale();
+            LocaleArray->s = locale;
+            pthread_mutex_unlock( &update_mutex );
+            return LocaleArray;
+        } else {
+            pthread_mutex_unlock( &update_mutex );
+            goto start;
+        }
+
+    }
+
+    SkTextLocale * l = LocaleArray;
+    SkTextLocale * prev = LocaleArray;
+    while( l ){
+        if( l->s == locale ){
+            return l;
+        }
+        prev = l;
+        l = l->next;
+    }
+
+    pthread_mutex_lock( &update_mutex );
+
+    SkDebugf("new locale %s", locale.c_str());
+    //Within mutex, restart from beginning
+    l = LocaleArray;
+    prev = LocaleArray;
+    while( l ){
+        if( l->s == locale ){
+            pthread_mutex_unlock( &update_mutex );
+            return l;
+        }
+        prev = l;
+        l = l->next;
+    }
+    l = new SkTextLocale();
+    prev->next = l;
+    l->s = locale;
+
+    pthread_mutex_unlock( &update_mutex );
+
+    return l;
+}
+
+
+SkString& SkTextLocales::getTextLocale( SkTextLocale * t ){
+    return t->s;
+}
+
+
 // define this to get a printf for out-of-range parameter in setters
 // e.g. setTextSize(-1)
 //#define SK_REPORT_API_RANGE_CHECK
@@ -71,13 +140,40 @@ SkPaint::SkPaint() {
     fTextEncoding = kUTF8_TextEncoding;
     fHinting    = SkPaintDefaults_Hinting;
 #ifdef SK_BUILD_FOR_ANDROID
-    new(&fTextLocale) SkString();
     fGenerationID = 0;
 #endif
 }
 
+extern "C" {
+    //Hard coded copy with size of 72 bytes. This will avoid the extra cost
+    //of size checking branching in generic memcpy code
+    inline void memcpy_72(int* src, int* dst) {
+        __asm__ volatile     ("cpy     r4,   %1     \n"
+                              "cpy     r5,   %0     \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "cpy     r12,  r5     \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4,  {r0-r1} \n"
+                              "stm     r12, {r0-r1} \n"
+                              :
+                              : "r" (src), "r" (dst)
+                              : "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r12");
+    }
+}
+
 SkPaint::SkPaint(const SkPaint& src) {
-    memcpy(this, &src, sizeof(src));
+    //Be noted to update this field when struture is changed!
+    if(sizeof(src) == 72){
+        memcpy_72((int*)this, (int*)&src);
+    } else {
+        memcpy((int*)this, (int*)&src, sizeof(src));
+    }
 
     SkSafeRef(fTypeface);
     SkSafeRef(fPathEffect);
@@ -88,9 +184,6 @@ SkPaint::SkPaint(const SkPaint& src) {
     SkSafeRef(fRasterizer);
     SkSafeRef(fLooper);
     SkSafeRef(fImageFilter);
-#ifdef SK_BUILD_FOR_ANDROID
-    new(&fTextLocale) SkString(src.fTextLocale);
-#endif
 }
 
 SkPaint::~SkPaint() {
@@ -129,12 +222,10 @@ SkPaint& SkPaint::operator=(const SkPaint& src) {
     SkSafeUnref(fImageFilter);
 
 #ifdef SK_BUILD_FOR_ANDROID
-    fTextLocale.~SkString();
     uint32_t oldGenerationID = fGenerationID;
 #endif
     memcpy(this, &src, sizeof(src));
 #ifdef SK_BUILD_FOR_ANDROID
-    new(&fTextLocale) SkString(src.fTextLocale);
     fGenerationID = oldGenerationID + 1;
 #endif
 
@@ -367,10 +458,15 @@ void SkPaint::setTextEncoding(TextEncoding encoding) {
 
 #ifdef SK_BUILD_FOR_ANDROID
 void SkPaint::setTextLocale(const SkString& locale) {
-    if(!fTextLocale.equals(locale)) {
-        fTextLocale.set(locale);
+    SkTextLocale* oldpTextLocale = fpTextLocale;
+    fpTextLocale = gTextLocales.setTextLocale(locale);
+    if (oldpTextLocale != fpTextLocale) {
         GEN_ID_INC;
     }
+}
+
+const SkString& SkPaint::getTextLocale(){
+    return fpTextLocale->s;
 }
 #endif
 
