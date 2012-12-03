@@ -551,6 +551,17 @@ public:
     void flatten(SkFlattenableWriteBuffer&) const;
     void unflatten(SkFlattenableReadBuffer&);
 
+    /** Get the unscaled version of this SkBitmap (may be null; in fact it usually will be)
+     */
+    SkBitmap* unscaledBitmap() const { return fUnscaledBitmap; }
+
+    /** Assign an unscaled bitmap so we can do some transforms with it
+     * TODO do some basic error-checking (make sure URIs match?)
+     */
+    SkBitmap* setUnscaledBitmap(SkBitmap* unscaledBitmap) { return fUnscaledBitmap = unscaledBitmap; }
+
+    void freeUnscaledBitmap();
+
     SkDEBUGCODE(void validate() const;)
 
     class Allocator : public SkRefCnt {
@@ -610,6 +621,11 @@ private:
     // gen id for SkDevice implementations that may cache a copy of the
     // pixels (e.g. as a gpu texture)
     mutable int         fRawPixelGenerationID;
+
+    // Holds shadow copy of this bitmap in cases where it was pre-upscaled, and
+    // we want to retain the original for possible performance improvements in
+    // later transformations
+    mutable SkBitmap*           fUnscaledBitmap;
 
     enum Flags {
         kImageIsOpaque_Flag     = 0x01,

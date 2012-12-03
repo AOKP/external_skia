@@ -894,6 +894,9 @@ public:
 
     void setExternalMatrix(const SkMatrix* = NULL);
 
+    virtual void drawBitmapScalarRect(const SkBitmap& bitmap, const SkRect* src,
+                                const SkRect& dst, const SkPaint* paint = NULL);
+
     ///////////////////////////////////////////////////////////////////////////
 
     /** After calling saveLayer(), there can be any number of devices that make
@@ -982,6 +985,8 @@ private:
     void internalDrawBitmap(const SkBitmap&, const SkIRect*, const SkMatrix& m,
                                   const SkPaint* paint);
     void internalDrawBitmapRect(const SkBitmap& bitmap, const SkIRect* src,
+                                const SkRect& dst, const SkPaint* paint);
+    void internalDrawBitmapScalarRect(const SkBitmap& bitmap, const SkRect* src,
                                 const SkRect& dst, const SkPaint* paint);
     void internalDrawBitmapNine(const SkBitmap& bitmap, const SkIRect& center,
                                 const SkRect& dst, const SkPaint* paint);

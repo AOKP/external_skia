@@ -1490,10 +1490,77 @@ void SkCanvas::internalDrawBitmapRect(const SkBitmap& bitmap, const SkIRect* src
     this->internalDrawBitmap(*bitmapPtr, src, matrix, paint);
 }
 
+// this one is non-virtual, so it can be called safely by other canvas apis
+void SkCanvas::internalDrawBitmapScalarRect(const SkBitmap& bitmap, const SkRect* src,
+                                      const SkRect& dst, const SkPaint* paint) {
+    SkIRect srcRounded, *srcRoundedPtr = NULL;
+
+    if (bitmap.width() == 0 || bitmap.height() == 0 || dst.isEmpty()) {
+        return;
+    }
+
+    if (NULL != src) {
+	srcRoundedPtr = &srcRounded;
+        src->roundOut(srcRoundedPtr);
+    }
+
+    // do this now, to avoid the cost of calling extract for RLE bitmaps
+    if (NULL == paint || paint->canComputeFastBounds()) {
+        SkRect storage;
+        const SkRect* bounds = &dst;
+        if (paint) {
+            bounds = &paint->computeFastBounds(dst, &storage);
+        }
+        if (this->quickReject(*bounds, paint2EdgeType(paint))) {
+            return;
+        }
+    }
+
+    const SkBitmap* bitmapPtr = &bitmap;
+
+    SkMatrix matrix;
+    SkRect tmpSrc;
+    if (src) {
+        tmpSrc = *src;
+        // if the extract process clipped off the top or left of the
+        // original, we adjust for that here to get the position right.
+        if (tmpSrc.fLeft > 0) {
+            tmpSrc.fRight -= tmpSrc.fLeft;
+            tmpSrc.fLeft = 0;
+        }
+        if (tmpSrc.fTop > 0) {
+            tmpSrc.fBottom -= tmpSrc.fTop;
+            tmpSrc.fTop = 0;
+        }
+    } else {
+        tmpSrc.set(0, 0, SkIntToScalar(bitmap.width()),
+                   SkIntToScalar(bitmap.height()));
+    }
+    matrix.setRectToRect(tmpSrc, dst, SkMatrix::kFill_ScaleToFit);
+
+    // ensure that src is "valid" before we pass it to our internal routines
+    // and to SkDevice. i.e. sure it is contained inside the original bitmap.
+    SkIRect tmpISrc;
+    if (srcRoundedPtr) {
+        tmpISrc.set(0, 0, bitmap.width(), bitmap.height());
+        if (!tmpISrc.intersect(*srcRoundedPtr)) {
+            return;
+        }
+        srcRoundedPtr = &tmpISrc;
+    }
+    this->internalDrawBitmap(*bitmapPtr, srcRoundedPtr, matrix, paint);
+}
+
 void SkCanvas::drawBitmapRect(const SkBitmap& bitmap, const SkIRect* src,
                               const SkRect& dst, const SkPaint* paint) {
     SkDEBUGCODE(bitmap.validate();)
     this->internalDrawBitmapRect(bitmap, src, dst, paint);
+}
+
+void SkCanvas::drawBitmapScalarRect(const SkBitmap& bitmap, const SkRect* src,
+                              const SkRect& dst, const SkPaint* paint) {
+    SkDEBUGCODE(bitmap.validate();)
+    this->internalDrawBitmapScalarRect(bitmap, src, dst, paint);
 }
 
 void SkCanvas::drawBitmapMatrix(const SkBitmap& bitmap, const SkMatrix& matrix,
