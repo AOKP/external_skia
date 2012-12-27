@@ -27,6 +27,76 @@
 #include "SkGlyphCache.h"
 #include "SkPaintDefaults.h"
 
+#include <pthread.h>
+
+SkLangList::SkLangList(){
+    new(&s) SkLanguage();
+    next = NULL;
+}
+
+static class SkLanguages gLanguages;
+
+SkLanguages::SkLanguages(){
+    LocaleArray  = NULL;
+    update_mutex = PTHREAD_MUTEX_INITIALIZER;
+}
+
+SkLangList * SkLanguages::setLanguage( const SkLanguage& lang ){
+start:
+    if( !LocaleArray ){
+        pthread_mutex_lock( &update_mutex );
+        if( !LocaleArray ){
+            LocaleArray = new SkLangList();
+            LocaleArray->s = lang;
+            pthread_mutex_unlock( &update_mutex );
+            return LocaleArray;
+        } else {
+            pthread_mutex_unlock( &update_mutex );
+            goto start;
+        }
+
+    }
+
+    SkLangList * l = LocaleArray;
+    SkLangList * prev = LocaleArray;
+    while( l ){
+        if( l->s == lang ){
+            return l;
+        }
+        prev = l;
+        l = l->next;
+    }
+
+    pthread_mutex_lock( &update_mutex );
+
+    SkDebugf("new locale %s", lang.getTag().c_str());
+    //Within mutex, restart from beginning
+    l = LocaleArray;
+    prev = LocaleArray;
+    while( l ){
+        if( l->s == lang ){
+            pthread_mutex_unlock( &update_mutex );
+            return l;
+        }
+        prev = l;
+        l = l->next;
+    }
+    l = new SkLangList();
+    prev->next = l;
+    l->s = lang;
+
+    pthread_mutex_unlock( &update_mutex );
+
+    return l;
+}
+
+
+const SkLanguage& SkLanguages::getLanguage( SkLangList * t ) const {
+    return t->s;
+}
+
+
+
 // define this to get a printf for out-of-range parameter in setters
 // e.g. setTextSize(-1)
 //#define SK_REPORT_API_RANGE_CHECK
@@ -72,14 +142,40 @@ SkPaint::SkPaint() {
     fTextEncoding = kUTF8_TextEncoding;
     fHinting    = SkPaintDefaults_Hinting;
 #ifdef SK_BUILD_FOR_ANDROID
-    fLanguage = SkLanguage();
     fFontVariant = kDefault_Variant;
     fGenerationID = 0;
 #endif
 }
 
+extern "C" {
+    //Hard coded copy with size of 76 bytes. This will avoid the extra cost
+    //of size checking branching in generic memcpy code
+    inline void memcpy_76(int* src, int* dst) {
+        __asm__ volatile     ("cpy     r4,   %1     \n"
+                              "cpy     r5,   %0     \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "cpy     r12,  r5     \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4!, {r0-r3} \n"
+                              "stm     r12!,{r0-r3} \n"
+                              "ldm     r4,  {r0-r2} \n"
+                              "stm     r12, {r0-r2} \n"
+                              :
+                              : "r" (src), "r" (dst)
+                              : "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r12");
+    }
+}
 SkPaint::SkPaint(const SkPaint& src) {
-    memcpy(this, &src, sizeof(src));
+    //Note: need to update this when SkPaint struture/size is changed!
+    if(sizeof(src) == 76){
+        memcpy_76((int*)this, (int*)&src);
+    } else {
+        memcpy((int*)this, (int*)&src, sizeof(src));
+    }
 
     SkSafeRef(fTypeface);
     SkSafeRef(fPathEffect);
@@ -364,9 +460,27 @@ void SkPaint::setTextEncoding(TextEncoding encoding) {
 
 #ifdef SK_BUILD_FOR_ANDROID
 void SkPaint::setLanguage(const SkLanguage& language) {
-    if(fLanguage != language) {
-        fLanguage = language;
+    SkLangList* oldpLanguage = fpLanguage;
+    fpLanguage = gLanguages.setLanguage(language);
+    if (oldpLanguage != fpLanguage) {
         GEN_ID_INC;
+    }
+}
+
+const SkLanguage& SkPaint::getLanguage() const {
+    if(!fpLanguage){
+        //Add the default empty language
+        //We shouldn't go through this path anyway
+        SkLanguage l = SkLanguage("");
+        SkLangList*     fpl;
+        //We can NOT assign the return pointer to fpLanguage as the API is
+        //defined on the READ-ONLY object.
+        fpl = gLanguages.setLanguage(l);
+        //This is persistent object in the global array,
+        //So there is no memory leak
+        return fpl->s;
+    } else {
+        return fpLanguage->s;
     }
 }
 

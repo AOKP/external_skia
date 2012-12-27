@@ -17,6 +17,7 @@
 #include "SkString.h"
 
 #ifdef SK_BUILD_FOR_ANDROID
+#include <pthread.h>
 #include "SkLanguage.h"
 #endif
 
@@ -41,6 +42,26 @@ typedef const SkGlyph& (*SkDrawCacheProc)(SkGlyphCache*, const char**,
                                            SkFixed x, SkFixed y);
 
 typedef const SkGlyph& (*SkMeasureCacheProc)(SkGlyphCache*, const char**);
+
+class SkLangList {
+    public:
+        SkLangList();
+
+    SkLanguage s;
+    SkLangList *next;
+};
+
+class SkLanguages {
+public:
+    SkLanguages();
+    SkLangList * setLanguage( const SkLanguage& locale );
+    const SkLanguage& getLanguage( SkLangList * t ) const;
+
+private:
+    SkLangList * LocaleArray;
+    pthread_mutex_t update_mutex;
+};
+
 
 /** \class SkPaint
 
@@ -664,7 +685,8 @@ public:
     /** Return the paint's language value used for drawing text.
         @return the paint's language value used for drawing text.
     */
-    const SkLanguage& getLanguage() const { return fLanguage; }
+    const SkLanguage& getLanguage() const;
+
 
     /** Set the paint's language value used for drawing text.
         @param language set the paint's language value for drawing text.
@@ -904,6 +926,8 @@ public:
     bool nothingToDraw() const;
 
 private:
+    //Be noted to update SkPaint::SkPaint(const SkPaint& src) copy
+    //constructor when struture is changed for fast path!
     SkTypeface*     fTypeface;
     SkScalar        fTextSize;
     SkScalar        fTextScaleX;
@@ -929,7 +953,7 @@ private:
     unsigned        fTextEncoding : 2;  // 3 values
     unsigned        fHinting : 2;
 #ifdef SK_BUILD_FOR_ANDROID
-    SkLanguage      fLanguage;
+    SkLangList*     fpLanguage;
     FontVariant     fFontVariant;
 #endif
 
