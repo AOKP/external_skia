@@ -177,9 +177,9 @@ extern "C" {
 SkPaint::SkPaint(const SkPaint& src) {
     //Note: need to update this when SkPaint struture/size is changed!
     if(sizeof(src) == 76){
-        memcpy_76((int*)this, (int*)&src);
+        memcpy_76((int*)this, (const int*)&src);
     } else {
-        memcpy((int*)this, (int*)&src, sizeof(src));
+        memcpy((int*)this, (const int*)&src, sizeof(src));
     }
 
     SkSafeRef(fTypeface);
