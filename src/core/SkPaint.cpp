@@ -150,7 +150,7 @@ SkPaint::SkPaint() {
 extern "C" {
     //Hard coded copy with size of 76 bytes. This will avoid the extra cost
     //of size checking branching in generic memcpy code
-    inline void memcpy_76(int* src, const int* dst) {
+    inline void memcpy_76(int* dst, const int* src) {
 #if defined(__CPU_ARCH_ARM)
         __asm__ volatile     ("cpy     r4,   %1     \n"
                               "cpy     r5,   %0     \n"
@@ -166,7 +166,7 @@ extern "C" {
                               "ldm     r4,  {r0-r2} \n"
                               "stm     r12, {r0-r2} \n"
                               :
-                              : "r" (src), "r" (dst)
+                              : "r" (dst), "r" (src)
                               : "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r12");
 #else
         memcpy(dst, src, 76);
