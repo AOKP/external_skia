@@ -128,7 +128,7 @@ private:
 
 SkDraw::SkDraw() {
     //Be noted to update this field when struture is changed!
-    if( sizeof(*this) == 40 ){
+    if( sizeof(*this) == 32 ){
         fBitmap     = NULL;
         fMatrix     = NULL;
         fClip       = NULL;
@@ -138,9 +138,6 @@ SkDraw::SkDraw() {
         fDevice     = NULL;
         fBounder    = NULL;
         fProcs      = NULL;
-
-        fMVMatrix   = NULL;
-        fExtMatrix  = NULL;
     } else {
         sk_bzero(this, sizeof(*this));
     }

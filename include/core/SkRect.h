@@ -357,14 +357,19 @@ struct SK_API SkRect {
             return false;
         }
 #else
-        // x * 0 will be NaN iff x is infinity or NaN.
-        // a + b will be NaN iff either a or b is NaN.
-        float value = fLeft * 0 + fTop * 0 + fRight * 0 + fBottom * 0;
-        
-        // value is either NaN or it is finite (zero).
+        float accum = 0;
+        accum *= fLeft;
+        accum *= fTop;
+        accum *= fRight;
+        accum *= fBottom;
+
+        // accum is either NaN or it is finite (zero).
+        SkASSERT(0 == accum || !(accum == accum));
+
         // value==value will be true iff value is not NaN
-        return value == value;
-#endif
+        // TODO: is it faster to say !accum or accum==accum?
+        return accum == accum;
+#endif //#if defined(KRAIT_OPTIMIZATION)
 #else
         // use bit-or for speed, since we don't care about short-circuting the
         // tests, and we expect the common case will be that we need to check all.

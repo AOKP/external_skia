@@ -97,6 +97,76 @@ const SkLanguage& SkLanguages::getLanguage( SkLangList * t ) const {
 
 
 
+#include <pthread.h>
+
+SkLangList::SkLangList(){
+    new(&s) SkLanguage();
+    next = NULL;
+}
+
+static class SkLanguages gLanguages;
+
+SkLanguages::SkLanguages(){
+    LocaleArray  = NULL;
+    update_mutex = PTHREAD_MUTEX_INITIALIZER;
+}
+
+SkLangList * SkLanguages::setLanguage( const SkLanguage& lang ){
+start:
+    if( !LocaleArray ){
+        pthread_mutex_lock( &update_mutex );
+        if( !LocaleArray ){
+            LocaleArray = new SkLangList();
+            LocaleArray->s = lang;
+            pthread_mutex_unlock( &update_mutex );
+            return LocaleArray;
+        } else {
+            pthread_mutex_unlock( &update_mutex );
+            goto start;
+        }
+
+    }
+
+    SkLangList * l = LocaleArray;
+    SkLangList * prev = LocaleArray;
+    while( l ){
+        if( l->s == lang ){
+            return l;
+        }
+        prev = l;
+        l = l->next;
+    }
+
+    pthread_mutex_lock( &update_mutex );
+
+    SkDebugf("new locale %s", lang.getTag().c_str());
+    //Within mutex, restart from beginning
+    l = LocaleArray;
+    prev = LocaleArray;
+    while( l ){
+        if( l->s == lang ){
+            pthread_mutex_unlock( &update_mutex );
+            return l;
+        }
+        prev = l;
+        l = l->next;
+    }
+    l = new SkLangList();
+    prev->next = l;
+    l->s = lang;
+
+    pthread_mutex_unlock( &update_mutex );
+
+    return l;
+}
+
+
+const SkLanguage& SkLanguages::getLanguage( SkLangList * t ) const {
+    return t->s;
+}
+
+
+
 // define this to get a printf for out-of-range parameter in setters
 // e.g. setTextSize(-1)
 //#define SK_REPORT_API_RANGE_CHECK
@@ -150,8 +220,7 @@ SkPaint::SkPaint() {
 extern "C" {
     //Hard coded copy with size of 76 bytes. This will avoid the extra cost
     //of size checking branching in generic memcpy code
-    inline void memcpy_76(int* dst, const int* src) {
-#if defined(__CPU_ARCH_ARM)
+    inline void memcpy_76(int* src, int* dst) {
         __asm__ volatile     ("cpy     r4,   %1     \n"
                               "cpy     r5,   %0     \n"
                               "ldm     r4!, {r0-r3} \n"
@@ -166,20 +235,16 @@ extern "C" {
                               "ldm     r4,  {r0-r2} \n"
                               "stm     r12, {r0-r2} \n"
                               :
-                              : "r" (dst), "r" (src)
+                              : "r" (src), "r" (dst)
                               : "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r12");
-#else
-        memcpy(dst, src, 76);
-#endif
     }
 }
-
 SkPaint::SkPaint(const SkPaint& src) {
     //Note: need to update this when SkPaint struture/size is changed!
     if(sizeof(src) == 76){
-        memcpy_76((int*)this, (const int*)&src);
+        memcpy_76((int*)this, (int*)&src);
     } else {
-        memcpy((int*)this, (const int*)&src, sizeof(src));
+        memcpy((int*)this, (int*)&src, sizeof(src));
     }
 
     SkSafeRef(fTypeface);
