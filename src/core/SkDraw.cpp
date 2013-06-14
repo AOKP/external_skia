@@ -30,6 +30,15 @@
 #include "SkBitmapProcShader.h"
 #include "SkDrawProcs.h"
 
+#define LOG_TAG "SKIA"
+#include <cutils/log.h>
+
+#if defined(FIMG2D_ENABLED)
+#include "SkFimgApi4x.h"
+Fimg fimg;
+SkMutex gG2DMutex;
+#endif
+
 //#define TRACE_BITMAP_DRAWS
 
 #define kBlitterStorageLongCount    (sizeof(SkBitmapProcShader) >> 2)
@@ -1210,7 +1219,81 @@ void SkDraw::drawBitmap(const SkBitmap& bitmap, const SkMatrix& prematrix,
                 SkIRect    ir;
                 ir.set(ix, iy, ix + bitmap.width(), iy + bitmap.height());
 
+#if defined(FIMG2D_ENABLED)
+                gG2DMutex.acquire();
+
+                SkAAClipBlitterWrapper wrapper(*fRC, blitter);
+                const SkRegion&       clip = wrapper.getRgn();
+                SkRegion::Cliperator    cliper(clip, ir);
+                const SkIRect&          cr = cliper.rect();
+
+                memset(&fimg, 0, sizeof(fimg));
+
+                fimg.matrixType = (int)matrix.getType();
+                fimg.matrixSx = matrix.getScaleX();
+                fimg.matrixSy = matrix.getScaleY();
+
+                fimg.srcX           = cr.fLeft - ix;
+                fimg.srcY           = cr.fTop - iy;
+                fimg.srcW           = cr.width();
+                fimg.srcH           = cr.height();
+                fimg.srcFWStride    = bitmap.rowBytes();
+                fimg.srcFH          = bitmap.height();
+                fimg.srcBPP         = bitmap.bytesPerPixel();
+                fimg.srcColorFormat = bitmap.getConfig();
+                fimg.srcAddr        = (unsigned char *)bitmap.getAddr(0, 0);
+
+                fimg.dstX           = cr.fLeft;
+                fimg.dstY           = cr.fTop;
+                fimg.dstW           = cr.width();
+                fimg.dstH           = cr.height();
+                fimg.dstFWStride    = fBitmap->rowBytes();
+                fimg.dstFH          = fBitmap->height();
+                fimg.dstBPP         = fBitmap->bytesPerPixel();
+                fimg.dstColorFormat = fBitmap->config();
+                fimg.dstAddr        = (unsigned char *)fBitmap->getAddr(0,0);
+
+                if (((cr.fLeft - ix) < 0) || ((cr.fTop - iy) < 0) || (cr.fLeft < 0) || (cr.fTop < 0))
+                    fimg.srcAddr = NULL;
+
+                fimg.clipT = cr.fTop;
+                fimg.clipB = cr.fBottom;
+                fimg.clipL = cr.fLeft;
+                fimg.clipR = cr.fRight;
+
+                fimg.mskAddr        = NULL;
+                fimg.rotate         = 0;
+
+                SkXfermode::Mode  mode;
+                SkXfermode::IsMode(paint.getXfermode(), &mode);
+                fimg.xfermode = mode;
+
+                fimg.isDither = paint.isDither();
+                fimg.colorFilter = (int)paint.getColorFilter();
+
+                fimg.alpha = paint.getAlpha();
+                if (bitmap.isOpaque() && (255 == fimg.alpha))
+                    fimg.alpha = 255;
+
+                if (fimg.srcAddr != NULL) {
+                    int retFimg = FimgApiStretch(&fimg, __func__);
+
+                    if (retFimg == FIMGAPI_FINISHED) {
+                        fimg.srcAddr = NULL;
+                        gG2DMutex.release();
+                    } else {
+                        fimg.srcAddr = NULL;
+                        gG2DMutex.release();
+                        SkScan::FillIRect(ir, *fRC, blitter);
+                    }
+                } else {
+                    fimg.srcAddr = NULL;
+                    gG2DMutex.release();
+                    SkScan::FillIRect(ir, *fRC, blitter);
+                }
+#else
                 SkScan::FillIRect(ir, *fRC, blitter);
+#endif
                 return;
             }
         }
@@ -1230,7 +1313,46 @@ void SkDraw::drawBitmap(const SkBitmap& bitmap, const SkMatrix& prematrix,
         r.set(0, 0, SkIntToScalar(bitmap.width()),
               SkIntToScalar(bitmap.height()));
         // is this ok if paint has a rasterizer?
+
+#if defined(FIMG2D_ENABLED)
+        gG2DMutex.acquire();
+
+        fimg.matrixType = (int)matrix.getType();
+        fimg.matrixSx = matrix.getScaleX();
+        fimg.matrixSy = matrix.getScaleY();
+
+        SkIRect fimg_ir;
+        r.round(&fimg_ir);
+        fimg.srcX           = fimg_ir.fLeft;
+        fimg.srcY           = fimg_ir.fTop;
+        fimg.srcW           = fimg_ir.width();
+        fimg.srcH           = fimg_ir.height();
+
+        fimg.srcFWStride    = bitmap.rowBytes();
+        fimg.srcFH          = bitmap.height();
+        fimg.srcBPP         = bitmap.bytesPerPixel();
+        fimg.srcColorFormat = bitmap.getConfig();
+        fimg.srcAddr        = (unsigned char *)bitmap.getAddr(0, 0);
+
+        if ((r.fLeft < 0) || (r.fTop < 0))
+            fimg.srcAddr = NULL;
+
+        fimg.dstFWStride    = fBitmap->rowBytes();
+        fimg.dstFH          = fBitmap->height();
+        fimg.dstBPP         = fBitmap->bytesPerPixel();
+        fimg.dstColorFormat = fBitmap->config();
+        fimg.dstAddr        = (unsigned char *)fBitmap->getAddr(0,0);
+
+        fimg.mskAddr        = NULL;
+        fimg.rotate         = 0;
+
+        fimg.alpha = paint.getAlpha();
+        if (bitmap.isOpaque() && (255 == fimg.alpha))
+            fimg.alpha = 255;
+        draw.drawRect_withG2D(r, install.paintWithShader());
+#else
         draw.drawRect(r, install.paintWithShader());
+#endif
     }
 }
 
@@ -2653,3 +2775,142 @@ bool SkDraw::DrawToMask(const SkPath& devPath, const SkIRect* clipBounds,
 
     return true;
 }
+
+#if defined(FIMG2D_ENABLED)
+void SkDraw::drawRect_withG2D(const SkRect& rect, const SkPaint& paint) const {
+    SkDEBUGCODE(this->validate();)
+
+    // nothing to draw
+    if (fRC->isEmpty()) {
+        fimg.srcAddr = NULL;
+        gG2DMutex.release();
+        return;
+    }
+
+    SkPoint strokeSize;
+    RectType rtype = ComputeRectType(paint, *fMatrix, &strokeSize);
+
+#ifdef SK_DISABLE_FAST_AA_STROKE_RECT
+    if (kStroke_RectType == rtype && paint.isAntiAlias())
+        rtype = kPath_RectType;
+#endif
+
+    if (kPath_RectType == rtype) {
+        SkPath  tmp;
+        fimg.srcAddr = NULL;
+        gG2DMutex.release();
+        tmp.addRect(rect);
+        tmp.setFillType(SkPath::kWinding_FillType);
+        this->drawPath(tmp, paint, NULL, true);
+        return;
+    }
+
+    const SkMatrix& matrix = *fMatrix;
+    SkRect          devRect;
+
+    // transform rect into devRect
+    matrix.mapXY(rect.fLeft, rect.fTop, rect_points(devRect, 0));
+    matrix.mapXY(rect.fRight, rect.fBottom, rect_points(devRect, 1));
+    devRect.sort();
+
+    if (fBounder && !fBounder->doRect(devRect, paint)) {
+        fimg.srcAddr = NULL;
+        gG2DMutex.release();
+        return;
+    }
+
+    // look for the quick exit, before we build a blitter
+    {
+        SkIRect ir;
+        devRect.roundOut(&ir);
+        if (paint.getStyle() != SkPaint::kFill_Style) {
+            // extra space for hairlines
+            ir.inset(-1, -1);
+        }
+        if (fRC->quickReject(ir)) {
+            fimg.srcAddr = NULL;
+            gG2DMutex.release();
+            return;
+        }
+    }
+
+    SkAutoBlitterChoose blitterStorage(*fBitmap, matrix, paint);
+    const SkRasterClip& clip = *fRC;
+    SkBlitter*          blitter = blitterStorage.get();
+
+    if (devRect.fLeft < 0)
+        fimg.srcAddr = NULL;
+
+    if (fimg.srcAddr != NULL) {
+        SkIRect fimg_ir;
+        devRect.round(&fimg_ir);
+        fimg.dstX           = fimg_ir.fLeft;
+        fimg.dstY           = fimg_ir.fTop;
+        fimg.dstW           = fimg_ir.width();
+        fimg.dstH           = fimg_ir.height();
+
+        if (clip.isRect()) {
+            const SkIRect& clipBounds = clip.getBounds();
+            fimg.clipT = clipBounds.fTop;
+            fimg.clipB = clipBounds.fBottom;
+            fimg.clipL = clipBounds.fLeft;
+            fimg.clipR = clipBounds.fRight;
+        } else {
+            fimg.srcAddr = NULL;
+            fimg.clipT = 0;
+            fimg.clipB = 0;
+            fimg.clipL = 0;
+            fimg.clipR = 0;
+        }
+
+        SkXfermode::Mode  mode;
+        SkXfermode::IsMode(paint.getXfermode(), &mode);
+        fimg.xfermode = mode;
+        fimg.isDither = paint.isDither();
+        fimg.isFilter = paint.isFilterBitmap();
+        fimg.colorFilter = (int)paint.getColorFilter();
+
+        if ((fimg.dstX<0)||(fimg.dstW<=0)||(fimg.dstH<=0))
+            fimg.srcAddr = NULL;
+
+        if (fimg.srcAddr != NULL) {
+            int retFimg;
+            retFimg = FimgApiStretch(&fimg, __func__);
+            if (retFimg) {
+                fimg.srcAddr = NULL;
+                gG2DMutex.release();
+                return;
+            }
+        }
+    }
+    fimg.srcAddr = NULL;
+    gG2DMutex.release();
+    /*  we want to "fill" if we are kFill or kStrokeAndFill, since in the latter
+     * case we are also hairline (if we've gotten to here), which devolves to
+     * effectively just kFill
+     */
+
+    switch (rtype) {
+    case kFill_RectType:
+        if (paint.isAntiAlias())
+            SkScan::AntiFillRect(devRect, clip, blitter);
+        else
+            SkScan::FillRect(devRect, clip, blitter);
+        break;
+    case kStroke_RectType:
+        if (paint.isAntiAlias())
+            SkScan::AntiFrameRect(devRect, strokeSize, clip, blitter);
+        else
+            SkScan::FrameRect(devRect, strokeSize, clip, blitter);
+        break;
+    case kHair_RectType:
+        if (paint.isAntiAlias())
+            SkScan::AntiHairRect(devRect, clip, blitter);
+        else
+            SkScan::HairRect(devRect, clip, blitter);
+        break;
+    default:
+            SkDEBUGFAIL("bad rtype");
+    }
+}
+#endif

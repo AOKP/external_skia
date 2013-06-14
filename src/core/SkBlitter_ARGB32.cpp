@@ -12,6 +12,17 @@
 #include "SkXfermode.h"
 #include "SkBlitMask.h"
 
+#define LOG_TAG "SKIA"
+#include <utils/Log.h>
+
+#if defined(FIMG2D_ENABLED)
+#include "SkBitmap.h"
+#include "SkBitmapProcShader.h"
+#include "SkFimgApi4x.h"
+extern Fimg fimg;
+extern SkMutex gG2DMutex;
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 
 static void SkARGB32_Blit32(const SkBitmap& device, const SkMask& mask,
@@ -213,10 +224,24 @@ void SkARGB32_Blitter::blitRect(int x, int y, int width, int height) {
     uint32_t    color = fPMColor;
     size_t      rowBytes = fDevice.rowBytes();
 
+#if defined(FIMG2D_ENABLED)
+    gG2DMutex.acquire();
+    int retFimg = FimgARGB32_Rect(fimg, fDevice.getAddr32(0, 0),
+                                        x, y, width, height, rowBytes, color);
+    if (retFimg != FIMGAPI_FINISHED) {
+        while (--height >= 0) {
+            fColor32Proc(device, device, width, color);
+            device = (uint32_t*)((char*)device + rowBytes);
+        }
+    }
+
+    gG2DMutex.release();
+#else
     while (--height >= 0) {
         fColor32Proc(device, device, width, color);
         device = (uint32_t*)((char*)device + rowBytes);
     }
+#endif
 }
 
 #if defined _WIN32 && _MSC_VER >= 1300

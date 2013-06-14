@@ -35,6 +35,9 @@ public:
     void    drawPoints(SkCanvas::PointMode, size_t count, const SkPoint[],
                        const SkPaint&, bool forceUseDevice = false) const;
     void    drawRect(const SkRect&, const SkPaint&) const;
+#if defined(FIMG2D_ENABLED)
+    void    drawRect_withG2D(const SkRect&,  const SkPaint&) const;
+#endif
     /**
      *  To save on mallocs, we allow a flag that tells us that srcPath is
      *  mutable, so that we don't have to make copies of it as we transform it.
