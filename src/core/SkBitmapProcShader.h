@@ -22,7 +22,7 @@ public:
     virtual bool setContext(const SkBitmap&, const SkPaint&, const SkMatrix&) SK_OVERRIDE;
     virtual void endContext() SK_OVERRIDE;
     virtual uint32_t getFlags() SK_OVERRIDE { return fFlags; }
-    virtual void shadeSpan(int x, int y, SkPMColor dstC[], int count) SK_OVERRIDE;
+    virtual void shadeSpan(int x, int y, SkPMColor dstC[], int count) SK_OVERRIDE __attribute__((weak));
     virtual ShadeProc asAShadeProc(void** ctx) SK_OVERRIDE;
     virtual void shadeSpan16(int x, int y, uint16_t dstC[], int count) SK_OVERRIDE;
     virtual BitmapType asABitmap(SkBitmap*, SkMatrix*, TileMode*) const SK_OVERRIDE;
@@ -35,6 +35,11 @@ public:
 #if SK_SUPPORT_GPU
     GrEffectRef* asNewEffect(GrContext*, const SkPaint&) const SK_OVERRIDE;
 #endif
+    // override beginRect and endRect
+    virtual void beginRect(int x, int y, int width);
+    virtual void endRect();
+
+    virtual SkShaderIds getID() { return kSkBitmapProcShader_Class; }
 
 protected:
     SkBitmapProcShader(SkFlattenableReadBuffer& );
