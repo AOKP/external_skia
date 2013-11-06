@@ -17,7 +17,20 @@
 #include "SkXfermode.h"
 #ifdef SK_BUILD_FOR_ANDROID
 #include "SkPaintOptionsAndroid.h"
+
+#define SKPAINTOPTIONS_OPT
+#ifdef SKPAINTOPTIONS_OPT
+//For testing this optimization ensure you rebuild and push libandroid_runtime.so and libhwui.so
+//everytime you build and push libskia.so
+#undef SKPAINT_OPT_DEBUG
+#ifdef SKPAINT_OPT_DEBUG
+#define SkPaintOptDebugf(...) SkDebugf(__VA_ARGS__)
+#else
+#define SkPaintOptDebugf(...)
 #endif
+#endif
+#endif
+
 
 class SkAnnotation;
 class SkAutoGlyphCache;
@@ -44,6 +57,38 @@ typedef const SkGlyph& (*SkDrawCacheProc)(SkGlyphCache*, const char**,
 typedef const SkGlyph& (*SkMeasureCacheProc)(SkGlyphCache*, const char**);
 
 #define kBicubicFilterBitmap_Flag kHighQualityFilterBitmap_Flag
+
+/**************************************************************************************/
+#ifdef SK_BUILD_FOR_ANDROID
+#ifdef SKPAINTOPTIONS_OPT
+class SkPaintOptionsAndroidList {
+    public:
+        SkPaintOptionsAndroidList(const SkPaintOptionsAndroid& options);
+        SkPaintOptionsAndroid s;
+        SkPaintOptionsAndroidList *next;
+};
+
+
+class SkPaintOptionsAndroids {
+public:
+    static SkPaintOptionsAndroids* getInstance();
+    SkPaintOptionsAndroidList*     setPaintOptionsAndroid( const SkPaintOptionsAndroid& options);
+
+private:
+    SkPaintOptionsAndroids();
+    ~SkPaintOptionsAndroids() {}
+
+    //Disallow copy and assigning by declaring the (copy) constructors
+    SkPaintOptionsAndroids(const SkPaintOptionsAndroids&);
+    SkPaintOptionsAndroids& operator=(const SkPaintOptionsAndroids&);
+
+    static SkPaintOptionsAndroids* m_pInstance;
+    SkPaintOptionsAndroidList * LocaleArray;
+    pthread_mutex_t update_mutex;
+};
+#endif
+#endif
+/**************************************************************************************/
 
 /** \class SkPaint
 
@@ -905,10 +950,16 @@ public:
     */
     unsigned getBaseGlyphCount(SkUnichar text) const;
 
+
+#ifdef SKPAINTOPTIONS_OPT
+    const SkPaintOptionsAndroid& getPaintOptionsAndroid() const;
+    void setPaintOptionsAndroid(const SkPaintOptionsAndroid& options);
+#else
     const SkPaintOptionsAndroid& getPaintOptionsAndroid() const {
         return fPaintOptionsAndroid;
     }
     void setPaintOptionsAndroid(const SkPaintOptionsAndroid& options);
+#endif
 #endif
 
     // returns true if the paint's settings (e.g. xfermode + alpha) resolve to
@@ -1094,7 +1145,11 @@ private:
     friend class SkCanonicalizePaint;
 
 #ifdef SK_BUILD_FOR_ANDROID
+#ifdef SKPAINTOPTIONS_OPT
+    SkPaintOptionsAndroidList*  fpPaintOptionsAndroid;
+#else
     SkPaintOptionsAndroid fPaintOptionsAndroid;
+#endif
 
     // In order for the == operator to work properly this must be the last field
     // in the struct so that we can do a memcmp to this field's offset.

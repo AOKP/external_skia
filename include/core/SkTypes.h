@@ -29,6 +29,11 @@
 #define SKIA_VERSION_MINOR  0
 #define SKIA_VERSION_PATCH  0
 
+/**Brnach prediction hint to compiler
+*/
+#define SkLikely(x)   __builtin_expect ((x), 1)
+#define SkUnlikely(x) __builtin_expect ((x), 0)
+
 /*
     memory wrappers to be implemented by the porting layer (platform)
 */
