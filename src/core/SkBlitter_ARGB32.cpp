@@ -331,6 +331,10 @@ void SkARGB32_Shader_Blitter::blitH(int x, int y, int width) {
     }
 }
 
+extern int skia_androidopt_blitRect(int x, int y, int width, int height,
+        SkARGB32_Shader_Blitter *sk, const SkBitmap& fDevice, SkXfermode *fXfermode,
+        SkShader* fShader) __attribute__((weak));
+
 void SkARGB32_Shader_Blitter::blitRect(int x, int y, int width, int height) {
     SkASSERT(x >= 0 && y >= 0 &&
              x + width <= fDevice.width() && y + height <= fDevice.height());
@@ -338,7 +342,14 @@ void SkARGB32_Shader_Blitter::blitRect(int x, int y, int width, int height) {
     uint32_t*   device = fDevice.getAddr32(x, y);
     size_t      deviceRB = fDevice.rowBytes();
     SkShader*   shader = fShader;
+    SkXfermode* xfer = fXfermode;
     SkPMColor*  span = fBuffer;
+
+    if (skia_androidopt_blitRect) {
+        if (skia_androidopt_blitRect(x, y, width, height, this, fDevice, xfer, shader)) {
+            return;
+        }
+    }
 
     if (fConstInY) {
         if (fShadeDirectlyIntoDevice) {
