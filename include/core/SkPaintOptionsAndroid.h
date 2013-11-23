@@ -13,6 +13,19 @@
 #include "SkTypes.h"
 #include "SkString.h"
 
+#define  SKLANG_OPT
+#ifdef SKLANG_OPT
+//For testing this optimization ensure you rebuild and push libandroid_runtime.so
+//everytime you build and push libskia.so
+#include <pthread.h>
+#endif
+#undef SKLANG_OPT_DEBUG
+#ifdef SKLANG_OPT_DEBUG
+#define SkLangOptDebugf(...) SkDebugf(__VA_ARGS__)
+#else
+#define SkLangOptDebugf(...)
+#endif
+
 class SkFlattenableReadBuffer;
 class SkFlattenableWriteBuffer;
 
@@ -56,15 +69,54 @@ private:
     SkString fTag;
 };
 
+/**************************************************************************************/
+#ifdef SKLANG_OPT
+class SkLangList {
+public:
+        SkLangList(const SkLanguage& lang);
+        SkLanguage s;
+        SkLangList *next;
+};
+
+class SkLanguages {
+public:
+    static SkLanguages* getInstance();
+    SkLangList* setLanguage( const SkLanguage& lang );
+    SkLangList* setLanguage( const char* langTag );
+
+private:
+    SkLanguages();
+    ~SkLanguages() {}
+
+    //Disallow copy and assigning by declaring the (copy) constructors
+    SkLanguages(const SkLanguages&);
+    SkLanguages& operator=(const SkLanguages&);
+
+    static SkLanguages* m_pInstance;
+    SkLangList * LocaleArray;
+    pthread_mutex_t update_mutex;
+};
+#endif
+/**************************************************************************************/
+
 class SkPaintOptionsAndroid {
 public:
     SkPaintOptionsAndroid() {
+        SkLangOptDebugf("SKLANG_OPT SkPaintOptionsAndroid constr");
+#ifdef SKLANG_OPT
+        fpLanguage = NULL;
+#endif
         fFontVariant = kDefault_Variant;
         fUseFontFallbacks = false;
     }
 
     SkPaintOptionsAndroid& operator=(const SkPaintOptionsAndroid& b) {
+        SkLangOptDebugf("SKLANG_OPT SkPaintOptionsAndroid overload= this=%p", this);
+#ifdef SKLANG_OPT
+        fpLanguage = b.fpLanguage;
+#else
         fLanguage = b.fLanguage;
+#endif
         fFontVariant = b.fFontVariant;
         fUseFontFallbacks = b.fUseFontFallbacks;
         return *this;
@@ -75,7 +127,13 @@ public:
     }
 
     bool operator!=(const SkPaintOptionsAndroid& b) const {
-        return fLanguage != b.fLanguage ||
+        SkLangOptDebugf("SKLANG_OPT SkPaintOptionsAndroid overload!= this=%p", this);
+        return
+#ifdef SKLANG_OPT
+               fpLanguage != b.fpLanguage ||
+#else
+               fLanguage != b.fLanguage ||
+#endif
                fFontVariant != b.fFontVariant ||
                fUseFontFallbacks != b.fUseFontFallbacks;
     }
@@ -86,14 +144,29 @@ public:
     /** Return the paint's language value used for drawing text.
         @return the paint's language value used for drawing text.
     */
-    const SkLanguage& getLanguage() const { return fLanguage; }
+#ifdef SKLANG_OPT
+     const SkLanguage& getLanguage() const;
+#else
+     const SkLanguage& getLanguage() const {
+         return fLanguage;
+     }
+#endif
 
     /** Set the paint's language value used for drawing text.
         @param language set the paint's language value for drawing text.
     */
-    void setLanguage(const SkLanguage& language) { fLanguage = language; }
-    void setLanguage(const char* languageTag) { fLanguage = SkLanguage(languageTag); }
+#ifdef SKLANG_OPT
+    void setLanguage(const SkLanguage& language);
+    void setLanguage(const char* languageTag);
+#else
+    void setLanguage(const SkLanguage& language) {
+       fLanguage = language;
+    }
 
+    void setLanguage(const char* languageTag) {
+       fLanguage = SkLanguage(languageTag);
+    }
+#endif
 
     enum FontVariant {
        kDefault_Variant = 0x01,
@@ -122,7 +195,12 @@ public:
     }
 
 private:
-    SkLanguage fLanguage;
+#ifdef SKLANG_OPT
+   //Convert all string manipulations to pointer manipulations
+   SkLangList* fpLanguage;
+#else
+   SkLanguage  fLanguage;
+#endif
     FontVariant fFontVariant;
     bool fUseFontFallbacks;
 };
