@@ -24,6 +24,7 @@ class SkRegion;
 class SkRasterClip;
 struct SkDrawProcs;
 struct SkRect;
+class SkRRect;
 
 class SkDraw {
 public:
@@ -34,6 +35,7 @@ public:
     void    drawPoints(SkCanvas::PointMode, size_t count, const SkPoint[],
                        const SkPaint&, bool forceUseDevice = false) const;
     void    drawRect(const SkRect&, const SkPaint&) const;
+    void    drawRRect(const SkRRect&, const SkPaint&) const;
     /**
      *  To save on mallocs, we allow a flag that tells us that srcPath is
      *  mutable, so that we don't have to make copies of it as we transform it.
@@ -97,15 +99,15 @@ public:
     static RectType ComputeRectType(const SkPaint&, const SkMatrix&,
                                     SkPoint* strokeSize);
 
-private:
     void    drawText_asPaths(const char text[], size_t byteLength,
                              SkScalar x, SkScalar y, const SkPaint&) const;
-    void    drawDevMask(const SkMask& mask, const SkPaint&) const;
-    void    drawBitmapAsMask(const SkBitmap&, const SkPaint&) const;
-
     void    drawPosText_asPaths(const char text[], size_t byteLength,
                                 const SkScalar pos[], SkScalar constY,
                                 int scalarsPerPosition, const SkPaint&) const;
+
+private:
+    void    drawDevMask(const SkMask& mask, const SkPaint&) const;
+    void    drawBitmapAsMask(const SkBitmap&, const SkPaint&) const;
 
     /**
      *  Return the current clip bounds, in local coordinates, with slop to account
