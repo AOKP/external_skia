@@ -110,43 +110,40 @@ static void D32_A8_Opaque(void* SK_RESTRICT dst, size_t dstRB,
                 count += UNROLL;
                 w -= UNROLL;
                }while (w >= UNROLL);
-            }            else if(w >= UNROLL_BY_4){
+            }            else if(w >= UNROLL_BY_2){
                /*mask or alpha*/
                uint16x8_t alpha_full = vmovl_u8(vld1_u8(mask));
+               uint32x4_t alpha_lo;
+               uint32x4_t alpha_slo; /*Saturated and scaled */
+               uint32x4_t rb,ag;     /*For device premultiply */
+               uint32x4_t rbp,agp;   /*For pmc premultiply */
+               uint32x4_t dev_lo;
+               uint32x4_t pmc_lo;
+               uint32x4_t pmc_dup = vdupq_n_u32(pmc);
 
-               if(w >= UNROLL_BY_2){
-                   uint32x4_t alpha_lo;
-                   uint32x4_t alpha_slo; /*Saturated and scaled */
-                   uint32x4_t rb,ag;     /*For device premultiply */
-                   uint32x4_t rbp,agp;   /*For pmc premultiply */
-                   uint32x4_t dev_lo;
-                   uint32x4_t pmc_lo;
-                   uint32x4_t pmc_dup = vdupq_n_u32(pmc);
+               dev_lo = vld1q_u32(device);
+               alpha_lo = vmovl_u16(vget_low_u16(alpha_full));
 
-                   dev_lo = vld1q_u32(device);
-                   alpha_lo = vmovl_u16(vget_low_u16(alpha_full));
+               /*SkAlpha255To256(255-aa)*/
+               //alpha_slo = vaddq_u32(vsubq_u32( vdupq_n_u32(0x000000FF), alpha_lo), vdupq_n_u32(0x00000001));
+               alpha_slo = vsubq_u32( vdupq_n_u32(0x00000100), alpha_lo);
+               /*SkAlpha255To256(aa)*/
+               alpha_lo = vaddq_u32(alpha_lo, vdupq_n_u32(0x00000001));
 
-                   /*SkAlpha255To256(255-aa)*/
-                   //alpha_slo = vaddq_u32(vsubq_u32( vdupq_n_u32(0x000000FF), alpha_lo), vdupq_n_u32(0x00000001));
-                   alpha_slo = vsubq_u32( vdupq_n_u32(0x00000100), alpha_lo);
-                   /*SkAlpha255To256(aa)*/
-                   alpha_lo = vaddq_u32(alpha_lo, vdupq_n_u32(0x00000001));
+               rb = vshrq_n_u32( vmulq_u32( vandq_u32( dev_lo, vdupq_n_u32(0x00FF00FF)), alpha_slo), 8);
+               ag = vmulq_u32( vandq_u32( vshrq_n_u32(dev_lo, 8), vdupq_n_u32(0x00FF00FF)), alpha_slo);
+               dev_lo = vorrq_u32( vandq_u32(rb,  vdupq_n_u32(0x00FF00FF)), vandq_u32(ag, vdupq_n_u32(0xFF00FF00)));
+               rbp = vshrq_n_u32( vmulq_u32( vandq_u32( pmc_dup, vdupq_n_u32(0x00FF00FF)), alpha_lo), 8);
+               agp = vmulq_u32( vandq_u32( vshrq_n_u32(pmc_dup, 8), vdupq_n_u32(0x00FF00FF)), alpha_lo);
+               pmc_lo = vorrq_u32( vandq_u32(rbp,  vdupq_n_u32(0x00FF00FF)), vandq_u32(agp, vdupq_n_u32(0xFF00FF00)));
 
-                   rb = vshrq_n_u32( vmulq_u32( vandq_u32( dev_lo, vdupq_n_u32(0x00FF00FF)), alpha_slo), 8);
-                   ag = vmulq_u32( vandq_u32( vshrq_n_u32(dev_lo, 8), vdupq_n_u32(0x00FF00FF)), alpha_slo);
-                   dev_lo = vorrq_u32( vandq_u32(rb,  vdupq_n_u32(0x00FF00FF)), vandq_u32(ag, vdupq_n_u32(0xFF00FF00)));
-                   rbp = vshrq_n_u32( vmulq_u32( vandq_u32( pmc_dup, vdupq_n_u32(0x00FF00FF)), alpha_lo), 8);
-                   agp = vmulq_u32( vandq_u32( vshrq_n_u32(pmc_dup, 8), vdupq_n_u32(0x00FF00FF)), alpha_lo);
-                   pmc_lo = vorrq_u32( vandq_u32(rbp,  vdupq_n_u32(0x00FF00FF)), vandq_u32(agp, vdupq_n_u32(0xFF00FF00)));
+               dev_lo = vaddq_u32 ( pmc_lo, dev_lo);
 
-                   dev_lo = vaddq_u32 ( pmc_lo, dev_lo);
+               vst1q_u32(device, dev_lo);
 
-                   vst1q_u32(device, dev_lo);
-
-                   device += UNROLL_BY_2;
-                   mask += UNROLL_BY_2;
-                   w -= UNROLL_BY_2;
-               }
+               device += UNROLL_BY_2;
+               mask += UNROLL_BY_2;
+               w -= UNROLL_BY_2;
 
                if (w >= UNROLL_BY_4){
                    /*mask or alpha*/
@@ -162,7 +159,7 @@ static void D32_A8_Opaque(void* SK_RESTRICT dst, size_t dstRB,
                    alpha_lo = vget_low_u32(vmovl_u16(vget_high_u16(alpha_full)));
 
                    /*SkAlpha255To256(255-aa)*/
-                   //alpha_slo = vaddq_u32(vsubq_u32( vdupq_n_u32(0x000000FF), alpha_lo), vdupq_n_u32(0x00000001));
+                   //alpha_slo = vadd_u32(vsub_u32( vdup_n_u32(0x000000FF), alpha_lo), vdup_n_u32(0x00000001));
                    alpha_slo = vsub_u32( vdup_n_u32(0x00000100), alpha_lo);
                    /*SkAlpha255To256(aa)*/
                    alpha_lo = vadd_u32(alpha_lo, vdup_n_u32(0x00000001));
@@ -182,6 +179,41 @@ static void D32_A8_Opaque(void* SK_RESTRICT dst, size_t dstRB,
                    mask += UNROLL_BY_4;
                    w -= UNROLL_BY_4;
                }
+
+        } else if(w >= UNROLL_BY_4){
+                 /*mask or alpha*/
+                uint16x8_t alpha_full = vmovl_u8(vld1_u8(mask));
+                uint32x2_t alpha_lo;
+                uint32x2_t alpha_slo; /*Saturated and scaled */
+                uint32x2_t rb,ag;
+                uint32x2_t rbp,agp;   /*For pmc premultiply */
+                uint32x2_t dev_lo;
+                uint32x2_t pmc_lo;
+                uint32x2_t pmc_dup = vdup_n_u32(pmc);
+
+                dev_lo = vld1_u32(device);
+                alpha_lo = vget_low_u32(vmovl_u16(vget_low_u16(alpha_full)));
+
+                /*SkAlpha255To256(255-aa)*/
+                //alpha_slo = vadd_u32(vsub_u32( vdup_n_u32(0x000000FF), alpha_lo), vdup_n_u32(0x00000001));
+                alpha_slo = vsub_u32( vdup_n_u32(0x00000100), alpha_lo);
+                /*SkAlpha255To256(aa)*/
+                alpha_lo = vadd_u32(alpha_lo, vdup_n_u32(0x00000001));
+
+                rb = vshr_n_u32( vmul_u32( vand_u32( dev_lo, vdup_n_u32(0x00FF00FF)), alpha_slo), 8);
+                ag = vmul_u32( vand_u32( vshr_n_u32(dev_lo, 8), vdup_n_u32(0x00FF00FF)), alpha_slo);
+                dev_lo = vorr_u32( vand_u32(rb,  vdup_n_u32(0x00FF00FF)), vand_u32(ag, vdup_n_u32(0xFF00FF00)));
+                rbp = vshr_n_u32( vmul_u32( vand_u32( pmc_dup, vdup_n_u32(0x00FF00FF)), alpha_lo), 8);
+                agp = vmul_u32( vand_u32( vshr_n_u32(pmc_dup, 8), vdup_n_u32(0x00FF00FF)), alpha_lo);
+                pmc_lo = vorr_u32( vand_u32(rbp,  vdup_n_u32(0x00FF00FF)), vand_u32(agp, vdup_n_u32(0xFF00FF00)));
+
+                dev_lo = vadd_u32 ( pmc_lo, dev_lo);
+
+                vst1_u32(device, dev_lo);
+
+                device += UNROLL_BY_4;
+                mask += UNROLL_BY_4;
+                w -= UNROLL_BY_4;
         }
 
         /*residuals (which is everything that cannot be handled by neon) */
@@ -192,7 +224,6 @@ static void D32_A8_Opaque(void* SK_RESTRICT dst, size_t dstRB,
             }
             device += 1;
             --w;
-
         }
         device = (uint32_t*)((char*)device + dstRB);
         mask += maskRB;
@@ -278,35 +309,31 @@ static void D32_A8_Black(void* SK_RESTRICT dst, size_t dstRB,
                 count += UNROLL;
                 w -= UNROLL;
                }while (w >= UNROLL);
-            }            else if(w >= UNROLL_BY_4){
+            }            else if(w >= UNROLL_BY_2){
                /*mask or alpha*/
-               uint16x8_t alpha_full;
-               alpha_full = vmovl_u8(vld1_u8(mask));
+               uint16x8_t alpha_full = vmovl_u8(vld1_u8(mask));
+               uint32x4_t alpha_lo;
+               uint32x4_t alpha_slo; /*Saturated and scaled */
+               uint32x4_t rb,ag;
+               uint32x4_t dev_lo;
 
-               if(w >= UNROLL_BY_2){
-                   uint32x4_t alpha_lo;
-                   uint32x4_t alpha_slo; /*Saturated and scaled */
-                   uint32x4_t rb,ag;
-                   uint32x4_t dev_lo;
+               dev_lo = vld1q_u32(device);
+               alpha_lo = vmovl_u16(vget_low_u16(alpha_full));
 
-                   dev_lo = vld1q_u32(device);
-                   alpha_lo = vmovl_u16(vget_low_u16(alpha_full));
+               /*SkAlpha255To256(255-aa)*/
+               //alpha_slo = vaddq_u32(vsubq_u32( vdupq_n_u32(0x000000FF), alpha_lo), vdupq_n_u32(0x00000001));
+               alpha_slo = vsubq_u32( vdupq_n_u32(0x00000100), alpha_lo);
 
-                   /*SkAlpha255To256(255-aa)*/
-                   //alpha_slo = vaddq_u32(vsubq_u32( vdupq_n_u32(0x000000FF), alpha_lo), vdupq_n_u32(0x00000001));
-                   alpha_slo = vsubq_u32( vdupq_n_u32(0x00000100), alpha_lo);
+               rb = vshrq_n_u32( vmulq_u32( vandq_u32( dev_lo, vdupq_n_u32(0x00FF00FF)), alpha_slo), 8);
+               ag = vmulq_u32( vandq_u32( vshrq_n_u32(dev_lo, 8), vdupq_n_u32(0x00FF00FF)), alpha_slo);
+               dev_lo = vorrq_u32( vandq_u32(rb,  vdupq_n_u32(0x00FF00FF)), vandq_u32(ag, vdupq_n_u32(0xFF00FF00)));
+               dev_lo = vaddq_u32( vshlq_n_u32(alpha_lo, SK_A32_SHIFT), dev_lo);
 
-                   rb = vshrq_n_u32( vmulq_u32( vandq_u32( dev_lo, vdupq_n_u32(0x00FF00FF)), alpha_slo), 8);
-                   ag = vmulq_u32( vandq_u32( vshrq_n_u32(dev_lo, 8), vdupq_n_u32(0x00FF00FF)), alpha_slo);
-                   dev_lo = vorrq_u32( vandq_u32(rb,  vdupq_n_u32(0x00FF00FF)), vandq_u32(ag, vdupq_n_u32(0xFF00FF00)));
-                   dev_lo = vaddq_u32( vshlq_n_u32(alpha_lo, SK_A32_SHIFT), dev_lo);
+               vst1q_u32(device, dev_lo);
 
-                   vst1q_u32(device, dev_lo);
-
-                   device += UNROLL_BY_2;
-                   mask += UNROLL_BY_2;
-                   w -= UNROLL_BY_2;
-               }
+               device += UNROLL_BY_2;
+               mask += UNROLL_BY_2;
+               w -= UNROLL_BY_2;
 
                if (w >= UNROLL_BY_4){
                    /*mask or alpha*/
@@ -319,7 +346,7 @@ static void D32_A8_Black(void* SK_RESTRICT dst, size_t dstRB,
                    alpha_lo = vget_low_u32(vmovl_u16(vget_high_u16(alpha_full)));
 
                    /*SkAlpha255To256(255-aa)*/
-                   //alpha_slo = vaddq_u32(vsubq_u32( vdupq_n_u32(0x000000FF), alpha_lo), vdupq_n_u32(0x00000001));
+                   //alpha_slo = vadd_u32(vsubq_u32( vdup_n_u32(0x000000FF), alpha_lo), vdup_n_u32(0x00000001));
                    alpha_slo = vsub_u32( vdup_n_u32(0x00000100), alpha_lo);
 
                    rb = vshr_n_u32( vmul_u32( vand_u32( dev_lo, vdup_n_u32(0x00FF00FF)), alpha_slo), 8);
@@ -333,6 +360,31 @@ static void D32_A8_Black(void* SK_RESTRICT dst, size_t dstRB,
                    mask += UNROLL_BY_4;
                    w -= UNROLL_BY_4;
                }
+        }else if(w >= UNROLL_BY_4){
+                /*mask or alpha*/
+                uint16x8_t alpha_full = vmovl_u8(vld1_u8(mask));
+                uint32x2_t alpha_lo;
+                uint32x2_t alpha_slo; /*Saturated and scaled */
+                uint32x2_t rb,ag;
+                uint32x2_t dev_lo;
+
+                dev_lo = vld1_u32(device);
+                alpha_lo = vget_low_u32(vmovl_u16(vget_low_u16(alpha_full)));
+
+                /*SkAlpha255To256(255-aa)*/
+                //alpha_slo = vadd_u32(vsub_u32( vdup_n_u32(0x000000FF), alpha_lo), vdup_n_u32(0x00000001));
+                alpha_slo = vsub_u32( vdup_n_u32(0x00000100), alpha_lo);
+
+                rb = vshr_n_u32( vmul_u32( vand_u32( dev_lo, vdup_n_u32(0x00FF00FF)), alpha_slo), 8);
+                ag = vmul_u32( vand_u32( vshr_n_u32(dev_lo, 8), vdup_n_u32(0x00FF00FF)), alpha_slo);
+                dev_lo = vorr_u32( vand_u32(rb,  vdup_n_u32(0x00FF00FF)), vand_u32(ag, vdup_n_u32(0xFF00FF00)));
+                dev_lo = vadd_u32 ( vshl_n_u32(alpha_lo, SK_A32_SHIFT), dev_lo);
+
+                vst1_u32(device, dev_lo);
+
+                device += UNROLL_BY_4;
+                mask += UNROLL_BY_4;
+                w -= UNROLL_BY_4;
         }
 
         /*residuals (which is everything that cannot be handled by neon) */
