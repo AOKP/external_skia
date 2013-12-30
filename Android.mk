@@ -515,13 +515,20 @@ LOCAL_SRC_FILES += \
 ifeq ($(TARGET_ARCH),arm)
 
 ifeq ($(ARCH_ARM_HAVE_NEON),true)
+
+LOCAL_CFLAGS += -DNEON_BLIT_ANTI_H
+ifneq ($(WITH_QC_PERF),true)
+    LOCAL_CFLAGS += -DNEON_BLIT_H
+endif
+
 LOCAL_SRC_FILES += \
 	src/opts/memset16_neon.S \
 	src/opts/memset32_neon.S \
 	src/opts/SkBitmapProcState_arm_neon.cpp \
 	src/opts/SkBitmapProcState_matrixProcs_neon.cpp \
 	src/opts/SkBlitRow_opts_arm_neon.cpp \
-	src/opts/ext/S32_Opaque_D32_filter_DX_shaderproc_neon.cpp
+	src/opts/ext/S32_Opaque_D32_filter_DX_shaderproc_neon.cpp \
+    src/core/asm/SkBlitter_RGB16_NEON.S
 endif
 
 LOCAL_SRC_FILES += \

@@ -35,6 +35,7 @@
 #include "SkTypeface.h"
 #include "SkXfermode.h"
 
+#define SIZE_OF_PAINT (76)
 
 // define this to get a printf for out-of-range parameter in setters
 // e.g. setTextSize(-1)
@@ -136,6 +137,28 @@ start:
 #define GEN_ID_INC_EVAL(expression)
 #endif
 
+extern "C" {
+    inline void memcpy_paint_opt(int* src, int* dst) {
+
+    __asm__ volatile
+   (
+        "cpy            r4, %1 \n\t"
+        "cpy            r5, %0  \n\t"
+        "vld1.8         {q0, q1}, [r4]! \n\t"
+        "vst1.8         {q0, q1}, [r5]! \n\t"
+        "vld1.8         {q0, q1}, [r4]! \n\t"
+        "vst1.8         {q0, q1}, [r5]! \n\t"
+        "vld1.8         {d0},     [r4]! \n\t"
+        "vst1.8         {d0},    [r5]! \n\t"
+        "ldr            ip, [r4]        \n\t"
+        "str            ip, [r5]        \n\t"
+        :
+        : "r" (src), "r" (dst)
+        : "r4","r5","ip","d0","q0","q1","d3"
+        );
+    }
+}
+
 SkPaint::SkPaint() {
     // since we may have padding, we zero everything so that our memcmp() call
     // in operator== will work correctly.
@@ -184,7 +207,10 @@ SkPaint::SkPaint() {
 }
 
 SkPaint::SkPaint(const SkPaint& src) {
-    memcpy(this, &src, sizeof(src));
+    if (sizeof(src) == SIZE_OF_PAINT)
+        memcpy_paint_opt((int*)this, (int*)&src);
+    else
+        memcpy((int*)this, (int*)&src, sizeof(src));
 
     SkSafeRef(fTypeface);
     SkSafeRef(fPathEffect);
